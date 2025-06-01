@@ -17,7 +17,7 @@ var (
 	client  *mongo.Client
 	db      *mongo.Database
 	initErr error
-	mu      sync.Mutex
+	mu      sync.RWMutex
 )
 
 // Init initializes the MongoDB connection (first call wins, thread-safe).
@@ -64,15 +64,15 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 
 // Client returns the singleton MongoDB client instance.
 func Client() *mongo.Client {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	return client
 }
 
 // DB returns the singleton MongoDB database instance.
 func DB() *mongo.Database {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	return db
 }
 

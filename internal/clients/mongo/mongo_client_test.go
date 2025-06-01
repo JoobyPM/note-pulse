@@ -89,17 +89,20 @@ func TestMongoClient_Concurrency(t *testing.T) {
 	clients := make([]*mongo.Client, goroutines)
 	dbs := make([]*mongo.Database, goroutines)
 
+	wg.Add(goroutines)
+
 	for i := range goroutines {
-		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-
-			cli, db, err := Init(ctx, cfg, log)
-			assert.Error(t, err) // expect ping failure
-			clients[index] = cli
+			client, db, err := Init(ctx, cfg, log)
+			if err == nil {
+				t.Errorf("Init should fail: %v", err)
+			}
+			clients[index] = client
 			dbs[index] = db
 		}(i)
 	}
+
 	wg.Wait()
 
 	require.NotNil(t, clients[0])
@@ -194,13 +197,4 @@ func TestMongoClient_RetryAfterFailure(t *testing.T) {
 	assert.Equal(t, client1, client2, "should return same client on retry after ping failure")
 	assert.Equal(t, db1, db2, "should return same db on retry after ping failure")
 	assert.Equal(t, err1, err2)
-}
-
-// Reset clears the singleton without going through Shutdown (helper for tests).
-func reset() {
-	mu.Lock()
-	defer mu.Unlock()
-	client = nil
-	db = nil
-	initErr = nil
 }
