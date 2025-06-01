@@ -11,7 +11,7 @@ LD_FLAGS    := -s -w \
 
 GO_SRCS := $(shell find cmd internal -name '*.go') go.mod go.sum
 
-.PHONY: all build test run vet lint check format swagger install-tools
+.PHONY: all build test run vet lint check format swagger install-tools e2e-check e2e
 
 all: build
 
@@ -45,7 +45,13 @@ format:
 install-tools:         ## install required tools (golangci-lint)
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-check: install-tools format vet lint test build
+check: install-tools format vet lint test build e2e-check
+
+e2e:
+	go test -tags e2e ./test -timeout 2m -v
+
+e2e-check:
+	go vet -tags=e2e ./test && golangci-lint run --build-tags=e2e ./test
 
 ## ---------- swagger spec ---------------------------------------------
 swagger:               ## fresh OpenAPI JSON/YAML

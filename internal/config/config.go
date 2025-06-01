@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"sync"
 
@@ -26,7 +25,7 @@ var (
 
 // Load loads configuration from environment variables and .env file
 // It caches the result for subsequent calls
-func Load(ctx context.Context) (Config, error) {
+func Load() (Config, error) {
 	configMutex.RLock()
 	if cachedConfig != nil {
 		defer configMutex.RUnlock()

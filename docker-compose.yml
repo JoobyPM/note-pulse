@@ -1,0 +1,41 @@
+x-server-core: &server-core
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: notepulse-server:latest
+  environment:
+    LOG_LEVEL: ${LOG_LEVEL:-debug}
+    MONGO_URI: mongodb://root:example@mongo:27017/?authSource=admin
+    MONGO_DB_NAME: notepulse
+    JWT_SECRET: ${JWT_SECRET:-change-me}
+    APP_PORT: 8080
+  depends_on:
+    - mongo
+
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: notepulse-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGO_INITDB_DATABASE: notepulse
+    volumes:
+      - mongo-data:/data/db
+    ports:            # exposed only in dev
+      - 127.0.0.1:27017:27017
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  server:
+    <<: *server-core
+    container_name: notepulse-server
+    ports:
+      - 8080:8080     # exposed only in dev
+
+volumes:
+  mongo-data: {}

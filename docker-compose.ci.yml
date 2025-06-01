@@ -1,0 +1,10 @@
+services:
+  mongo:
+    volumes:
+      - type: tmpfs
+        target: /data/db
+        tmpfs: { size: 256m }   # adjust to suit your test set
+    ports: []                   # keep the DB internal to the network
+
+  server:
+    ports: []                   # the CI runner reaches it on the network, not the host

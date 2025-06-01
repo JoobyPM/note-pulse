@@ -10,7 +10,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 var (
@@ -18,6 +17,7 @@ var (
 	db      *mongo.Database
 	initErr error
 	mu      sync.RWMutex
+	drv     driver = mongoDriver{} // production default
 )
 
 // Init initializes the MongoDB connection (first call wins, thread-safe).
@@ -38,28 +38,53 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	cli, err := mongo.Connect(opts)
+	cli, err := drv.Connect(ctx, opts)
 	if err != nil {
 		log.Error("failed to connect to mongo", "err", err)
 		return nil, nil, err
 	}
 
-	pingErr := cli.Ping(ctx, readpref.Primary())
+	// Retry ping with backoff for a total of ~5 seconds
+	retries := []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+	var pingErr error
+
+	for i, delay := range retries {
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		pingErr = drv.Ping(pingCtx, cli)
+		cancel()
+
+		if pingErr == nil {
+			break
+		}
+
+		log.Error("ping attempt failed", "attempt", i+1, "err", pingErr)
+
+		// Don't sleep on the last attempt
+		if i < len(retries)-1 {
+			select {
+			case <-ctx.Done():
+				_ = drv.Disconnect(ctx, cli)
+				return nil, nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+
 	if pingErr != nil {
-		log.Error("failed to ping mongo", "err", pingErr)
+		log.Error("failed to ping mongo after retries", "err", pingErr)
+		_ = drv.Disconnect(ctx, cli)
+		return nil, nil, pingErr
 	}
 
 	database := cli.Database(cfg.MongoDBName)
 
 	client = cli
 	db = database
-	initErr = pingErr
+	initErr = nil
 
-	if pingErr == nil {
-		log.Info("successfully connected to mongo", "db", cfg.MongoDBName)
-	}
+	log.Info("successfully connected to mongo", "db", cfg.MongoDBName)
 
-	return client, db, pingErr
+	return client, db, nil
 }
 
 // Client returns the singleton MongoDB client instance.
@@ -89,7 +114,7 @@ func Shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err := client.Disconnect(ctx)
+	err := drv.Disconnect(ctx, client)
 
 	client = nil
 	db = nil
