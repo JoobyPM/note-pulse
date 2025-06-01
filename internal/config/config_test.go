@@ -9,6 +9,7 @@ import (
 )
 
 func TestConfig_LoadDefaults(t *testing.T) {
+	t.Parallel()
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -25,6 +26,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 }
 
 func TestConfig_LoadWithOverride(t *testing.T) {
+	t.Parallel()
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -48,6 +50,7 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 }
 
 func TestConfig_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		config  Config
@@ -125,6 +128,7 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestConfig_Caching(t *testing.T) {
+	t.Parallel()
 	clearConfigEnvVars(t)
 	ResetCache()
 

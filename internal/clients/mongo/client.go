@@ -10,7 +10,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 var (
@@ -18,6 +17,7 @@ var (
 	db      *mongo.Database
 	initErr error
 	mu      sync.RWMutex
+	drv     driver = mongoDriver{} // production default
 )
 
 // Init initializes the MongoDB connection (first call wins, thread-safe).
@@ -38,7 +38,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	cli, err := mongo.Connect(opts)
+	cli, err := drv.Connect(ctx, opts)
 	if err != nil {
 		log.Error("failed to connect to mongo", "err", err)
 		return nil, nil, err
@@ -50,7 +50,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 
 	for i, delay := range retries {
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		pingErr = cli.Ping(pingCtx, readpref.Primary())
+		pingErr = drv.Ping(pingCtx, cli)
 		cancel()
 
 		if pingErr == nil {
@@ -63,7 +63,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 		if i < len(retries)-1 {
 			select {
 			case <-ctx.Done():
-				_ = cli.Disconnect(ctx)
+				_ = drv.Disconnect(ctx, cli)
 				return nil, nil, ctx.Err()
 			case <-time.After(delay):
 			}
@@ -72,7 +72,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 
 	if pingErr != nil {
 		log.Error("failed to ping mongo after retries", "err", pingErr)
-		_ = cli.Disconnect(ctx)
+		_ = drv.Disconnect(ctx, cli)
 		return nil, nil, pingErr
 	}
 
@@ -114,7 +114,7 @@ func Shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err := client.Disconnect(ctx)
+	err := drv.Disconnect(ctx, client)
 
 	client = nil
 	db = nil

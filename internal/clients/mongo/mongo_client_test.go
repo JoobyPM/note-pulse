@@ -12,9 +12,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// stubDriver implements the driver interface for testing
+type stubDriver struct{}
+
+func (stubDriver) Connect(_ context.Context, _ *options.ClientOptions) (*mongo.Client, error) {
+	return nil, context.DeadlineExceeded // fail immediately to avoid retry delays
+}
+
+func (stubDriver) Ping(_ context.Context, _ *mongo.Client) error {
+	return context.DeadlineExceeded
+}
+
+func (stubDriver) Disconnect(_ context.Context, _ *mongo.Client) error { return nil }
+
+// withStubDriver temporarily replaces the global driver with a stub for testing
+func withStubDriver(t *testing.T) func() {
+	t.Helper()
+	old := drv
+	drv = stubDriver{}
+	return func() { drv = old }
+}
+
 func TestMongoClient_Idempotency(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
@@ -43,6 +66,7 @@ func TestMongoClient_Idempotency(t *testing.T) {
 }
 
 func TestMongoClient_ShutdownResets(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
@@ -77,6 +101,7 @@ func TestMongoClient_ShutdownResets(t *testing.T) {
 }
 
 func TestMongoClient_Concurrency(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
@@ -124,6 +149,7 @@ func TestMongoClient_Concurrency(t *testing.T) {
 }
 
 func TestMongoClient_AccessorsAfterInit(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
@@ -150,6 +176,7 @@ func TestMongoClient_AccessorsAfterInit(t *testing.T) {
 }
 
 func TestMongoClient_ShutdownIdempotency(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
@@ -181,6 +208,7 @@ func TestMongoClient_ShutdownIdempotency(t *testing.T) {
 }
 
 func TestMongoClient_RetryAfterFailure(t *testing.T) {
+	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
