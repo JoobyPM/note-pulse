@@ -1,7 +1,17 @@
 package main
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"note-pulse/internal/config"
+)
 
 func main() {
-	fmt.Println("starting NotePulse")
+	cfg, err := config.Load(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("config: %+v\n", cfg)
 }
