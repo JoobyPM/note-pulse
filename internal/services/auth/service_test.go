@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 
 	"note-pulse/internal/config"
@@ -13,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
+
+var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // MockUsersRepo is a mock implementation of UsersRepo
 type MockUsersRepo struct {
@@ -105,7 +109,7 @@ func TestService_SignUp(t *testing.T) {
 			repo := new(MockUsersRepo)
 			tt.setup(repo)
 
-			service := NewService(repo, cfg)
+			service := NewService(repo, cfg, silentLogger)
 			resp, err := service.SignUp(context.Background(), tt.req)
 
 			if tt.wantErr {
@@ -195,7 +199,7 @@ func TestService_SignIn(t *testing.T) {
 			repo := new(MockUsersRepo)
 			tt.setup(repo)
 
-			service := NewService(repo, cfg)
+			service := NewService(repo, cfg, silentLogger)
 			resp, err := service.SignIn(context.Background(), tt.req)
 
 			if tt.wantErr {

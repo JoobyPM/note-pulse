@@ -3,8 +3,17 @@ services:
     volumes:
       - type: tmpfs
         target: /data/db
-        tmpfs: { size: 256m }   # adjust to suit your test set
-    ports: []                   # keep the DB internal to the network
+        tmpfs: { size: 256m }
+    ports: []
 
   server:
-    ports: []                   # the CI runner reaches it on the network, not the host
+    env_file:
+      - .env.ci
+    ports: []
+    # identical probe to the base file
+    healthcheck:
+      test: ["CMD", "/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

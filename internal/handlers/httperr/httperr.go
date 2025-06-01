@@ -6,8 +6,8 @@ import (
 
 // E represents an HTTP error with status code and message
 type E struct {
-	Status  int    `json:"-"`
-	Message string `json:"error"`
+	Status  int    `json:"-" example:"400"`
+	Message string `json:"error" example:"Bad Request"`
 }
 
 // Error implements the error interface

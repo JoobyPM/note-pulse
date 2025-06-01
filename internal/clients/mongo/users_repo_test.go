@@ -4,6 +4,7 @@ package mongo
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -83,7 +84,13 @@ func setupTestDB(t *testing.T) (*mongo.Client, *mongo.Database, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	// Allow override, useful on CI
+	uri := os.Getenv("MONGO_TEST_URI")
+	if uri == "" {
+		uri = "mongodb://root:example@localhost:27017/?authSource=admin"
+	}
+
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
 		t.Skip("MongoDB not available for testing:", err)
 	}
