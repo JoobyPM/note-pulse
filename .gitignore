@@ -5,3 +5,4 @@ tmp/*
 .vscode/*
 .env
 .env.local
+/coverage.out
