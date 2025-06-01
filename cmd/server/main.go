@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"note-pulse/internal/config"
+	"note-pulse/internal/logger"
 )
 
 func main() {
@@ -13,5 +13,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("config: %+v\n", cfg)
+	
+	logger, err := logger.Init(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	logger.Info("starting NotePulse", "port", cfg.AppPort)
 }
