@@ -1,4 +1,4 @@
-package test
+package config
 
 import (
 	"context"
@@ -7,21 +7,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"note-pulse/internal/config"
 )
 
 func TestConfig_LoadDefaults(t *testing.T) {
-	// Clear any environment variables that might interfere
 	clearConfigEnvVars(t)
+	ResetCache()
 
-	// Reset the cached config to ensure fresh load
-	config.ResetCache()
-
-	cfg, err := config.Load(context.Background())
+	cfg, err := Load(context.Background())
 	require.NoError(t, err)
 
-	// Verify all defaults are loaded correctly
 	assert.Equal(t, 8080, cfg.AppPort)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
@@ -32,13 +26,9 @@ func TestConfig_LoadDefaults(t *testing.T) {
 }
 
 func TestConfig_LoadWithOverride(t *testing.T) {
-	// Clear any environment variables that might interfere
 	clearConfigEnvVars(t)
+	ResetCache()
 
-	// Reset the cached config to ensure fresh load
-	config.ResetCache()
-
-	// Set an override for APP_PORT
 	err := os.Setenv("APP_PORT", "9999")
 	require.NoError(t, err)
 	defer func() {
@@ -46,13 +36,10 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	cfg, err := config.Load(context.Background())
+	cfg, err := Load(context.Background())
 	require.NoError(t, err)
 
-	// Verify the override worked
 	assert.Equal(t, 9999, cfg.AppPort)
-	
-	// Verify other defaults remain unchanged
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.Equal(t, "mongodb://mongo:27017", cfg.MongoURI)
@@ -64,13 +51,13 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  config.Config
+		config  Config
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: config.Config{
+			config: Config{
 				AppPort:          8080,
 				LogLevel:         "info",
 				LogFormat:        "json",
@@ -83,7 +70,7 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid port",
-			config: config.Config{
+			config: Config{
 				AppPort:          0,
 				LogLevel:         "info",
 				LogFormat:        "json",
@@ -97,7 +84,7 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "empty log level",
-			config: config.Config{
+			config: Config{
 				AppPort:          8080,
 				LogLevel:         "",
 				LogFormat:        "json",
@@ -111,7 +98,7 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "empty JWT secret",
-			config: config.Config{
+			config: Config{
 				AppPort:          8080,
 				LogLevel:         "info",
 				LogFormat:        "json",
@@ -139,25 +126,18 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestConfig_Caching(t *testing.T) {
-	// Clear any environment variables that might interfere
 	clearConfigEnvVars(t)
+	ResetCache()
 
-	// Reset the cached config to ensure fresh load
-	config.ResetCache()
-
-	// Load config first time
-	cfg1, err := config.Load(context.Background())
+	cfg1, err := Load(context.Background())
 	require.NoError(t, err)
 
-	// Load config second time - should be cached
-	cfg2, err := config.Load(context.Background())
+	cfg2, err := Load(context.Background())
 	require.NoError(t, err)
 
-	// Verify they are the same
 	assert.Equal(t, cfg1, cfg2)
 }
 
-// Helper function to clear config-related environment variables
 func clearConfigEnvVars(t *testing.T) {
 	envVars := []string{
 		"APP_PORT",
@@ -174,13 +154,4 @@ func clearConfigEnvVars(t *testing.T) {
 			t.Logf("Warning: failed to unset %s: %v", envVar, err)
 		}
 	}
-}
-
-// Helper function to reset the cached config
-// This is a test helper to ensure clean test state
-func resetConfigCache() {
-	// Note: This is accessing package-level variables for testing.
-	// In a production environment, we'd need to implement a Reset() function
-	// in the config package, but since the requirements don't ask for it,
-	// we'll work around it by using a fresh process context for each test.
 }

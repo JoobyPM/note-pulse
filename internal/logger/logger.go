@@ -20,7 +20,6 @@ func Init(cfg config.Config) (*slog.Logger, error) {
 	var initErr error
 	
 	once.Do(func() {
-		// Parse log level
 		var level slog.Level
 		switch cfg.LogLevel {
 		case "debug":
@@ -35,12 +34,10 @@ func Init(cfg config.Config) (*slog.Logger, error) {
 			level = slog.LevelInfo
 		}
 
-		// Create handler options
 		opts := &slog.HandlerOptions{
 			Level: level,
 		}
 
-		// Create handler based on format
 		var handler slog.Handler
 		switch cfg.LogFormat {
 		case "text":
@@ -51,7 +48,6 @@ func Init(cfg config.Config) (*slog.Logger, error) {
 			handler = slog.NewJSONHandler(os.Stdout, opts)
 		}
 
-		// Create the logger
 		singleton = slog.New(handler)
 	})
 
@@ -59,7 +55,6 @@ func Init(cfg config.Config) (*slog.Logger, error) {
 }
 
 // L returns the singleton logger instance.
-// Init must be called first, otherwise this will return nil.
 func L() *slog.Logger {
 	return singleton
 }
