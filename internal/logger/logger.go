@@ -18,7 +18,7 @@ var (
 // and subsequent calls return the same logger instance.
 func Init(cfg config.Config) (*slog.Logger, error) {
 	var initErr error
-	
+
 	once.Do(func() {
 		var level slog.Level
 		switch cfg.LogLevel {

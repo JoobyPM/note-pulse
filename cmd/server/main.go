@@ -13,11 +13,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	logger, err := logger.Init(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	logger.Info("starting NotePulse", "port", cfg.AppPort)
 }

@@ -14,13 +14,13 @@ import (
 
 func TestLogger_FormatSelection(t *testing.T) {
 	tests := []struct {
-		name        string
-		logFormat   string
-		expectJSON  bool
+		name       string
+		logFormat  string
+		expectJSON bool
 	}{
 		{
 			name:       "json format",
-			logFormat:  "json", 
+			logFormat:  "json",
 			expectJSON: true,
 		},
 		{
@@ -34,7 +34,7 @@ func TestLogger_FormatSelection(t *testing.T) {
 			expectJSON: true,
 		},
 		{
-			name:       "unknown format defaults to json", 
+			name:       "unknown format defaults to json",
 			logFormat:  "unknown",
 			expectJSON: true,
 		},

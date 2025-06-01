@@ -141,7 +141,7 @@ func TestConfig_Caching(t *testing.T) {
 func clearConfigEnvVars(t *testing.T) {
 	envVars := []string{
 		"APP_PORT",
-		"LOG_LEVEL", 
+		"LOG_LEVEL",
 		"LOG_FORMAT",
 		"MONGO_URI",
 		"MONGO_DB_NAME",
