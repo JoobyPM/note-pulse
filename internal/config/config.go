@@ -10,11 +10,14 @@ import (
 // Config holds all application configuration
 type Config struct {
 	AppPort          int    `mapstructure:"APP_PORT"`
+	BcryptCost       int    `mapstructure:"BCRYPT_COST"`
+	SignInRatePerMin int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
 	LogLevel         string `mapstructure:"LOG_LEVEL"`
 	LogFormat        string `mapstructure:"LOG_FORMAT"`
 	MongoURI         string `mapstructure:"MONGO_URI"`
 	MongoDBName      string `mapstructure:"MONGO_DB_NAME"`
 	JWTSecret        string `mapstructure:"JWT_SECRET"`
+	JWTAlgorithm     string `mapstructure:"JWT_ALGORITHM"`
 	JWTExpiryMinutes int    `mapstructure:"JWT_EXPIRY_MINUTES"`
 }
 
@@ -45,11 +48,14 @@ func Load() (Config, error) {
 
 	// Set defaults
 	v.SetDefault("APP_PORT", 8080)
+	v.SetDefault("BCRYPT_COST", 12)
+	v.SetDefault("SIGNIN_RATE_PER_MIN", 5)
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "json")
 	v.SetDefault("MONGO_URI", "mongodb://mongo:27017")
 	v.SetDefault("MONGO_DB_NAME", "notepulse")
-	v.SetDefault("JWT_SECRET", "change-me")
+	v.SetDefault("JWT_SECRET", "this-is-a-default-jwt-secret-key-with-32-plus-characters")
+	v.SetDefault("JWT_ALGORITHM", "HS256")
 	v.SetDefault("JWT_EXPIRY_MINUTES", 60)
 
 	// Configure Viper to read from .env file (if present)
@@ -95,6 +101,12 @@ func (c Config) Validate() error {
 	if c.AppPort <= 0 {
 		return errors.New("APP_PORT must be greater than 0")
 	}
+	if c.BcryptCost < 10 || c.BcryptCost > 16 {
+		return errors.New("BCRYPT_COST must be between 10 and 16")
+	}
+	if c.SignInRatePerMin < 1 {
+		return errors.New("SIGNIN_RATE_PER_MIN must be greater than or equal to 1")
+	}
 	if c.LogLevel == "" {
 		return errors.New("LOG_LEVEL cannot be empty")
 	}
@@ -109,6 +121,9 @@ func (c Config) Validate() error {
 	}
 	if c.JWTSecret == "" {
 		return errors.New("JWT_SECRET cannot be empty")
+	}
+	if c.JWTAlgorithm == "HS256" && len(c.JWTSecret) < 32 {
+		return errors.New("JWT_SECRET must be at least 32 characters for HS256")
 	}
 	if c.JWTExpiryMinutes <= 0 {
 		return errors.New("JWT_EXPIRY_MINUTES must be greater than 0")
