@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -13,7 +12,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
-	cfg, err := Load(context.Background())
+	cfg, err := Load()
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.AppPort)
@@ -36,7 +35,7 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	cfg, err := Load(context.Background())
+	cfg, err := Load()
 	require.NoError(t, err)
 
 	assert.Equal(t, 9999, cfg.AppPort)
@@ -129,10 +128,10 @@ func TestConfig_Caching(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
-	cfg1, err := Load(context.Background())
+	cfg1, err := Load()
 	require.NoError(t, err)
 
-	cfg2, err := Load(context.Background())
+	cfg2, err := Load()
 	require.NoError(t, err)
 
 	assert.Equal(t, cfg1, cfg2)

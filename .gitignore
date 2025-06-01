@@ -6,3 +6,4 @@ tmp/*
 .env
 .env.local
 /coverage.out
+.e2e

@@ -33,10 +33,13 @@ func TestMongoClient_Idempotency(t *testing.T) {
 	client1, db1, err1 := Init(ctx, cfg, log)
 	client2, db2, err2 := Init(ctx, cfg, log)
 
-	assert.Equal(t, client1, client2, "clients should be the same pointer")
-	assert.Equal(t, db1, db2, "databases should be the same pointer")
+	// With new behavior, failed connections return nil
+	assert.Nil(t, client1, "client should be nil on connection failure")
+	assert.Nil(t, db1, "db should be nil on connection failure")
+	assert.Nil(t, client2, "client should be nil on connection failure")
+	assert.Nil(t, db2, "db should be nil on connection failure")
 	assert.Error(t, err1)
-	assert.Equal(t, err1, err2)
+	assert.Error(t, err2)
 }
 
 func TestMongoClient_ShutdownResets(t *testing.T) {
@@ -57,15 +60,20 @@ func TestMongoClient_ShutdownResets(t *testing.T) {
 
 	client1, db1, initErr := Init(ctx, cfg, log)
 	require.Error(t, initErr)
+	assert.Nil(t, client1, "client should be nil on connection failure")
+	assert.Nil(t, db1, "db should be nil on connection failure")
 
 	err = Shutdown(ctx)
 	assert.NoError(t, err)
 
 	client2, db2, initErr := Init(ctx, cfg, log)
 	require.Error(t, initErr)
+	assert.Nil(t, client2, "client should be nil on connection failure")
+	assert.Nil(t, db2, "db should be nil on connection failure")
 
-	assert.NotEqual(t, client1, client2, "clients should be different pointers after shutdown")
-	assert.NotEqual(t, db1, db2, "databases should be different pointers after shutdown")
+	// Both should be nil, so they're "equal" in that sense
+	assert.Equal(t, client1, client2, "both clients should be nil")
+	assert.Equal(t, db1, db2, "both databases should be nil")
 }
 
 func TestMongoClient_Concurrency(t *testing.T) {
@@ -105,12 +113,13 @@ func TestMongoClient_Concurrency(t *testing.T) {
 
 	wg.Wait()
 
-	require.NotNil(t, clients[0])
-	require.NotNil(t, dbs[0])
+	// With new behavior, all should be nil since connection fails
+	require.Nil(t, clients[0])
+	require.Nil(t, dbs[0])
 
 	for i := 1; i < goroutines; i++ {
-		assert.Equal(t, clients[0], clients[i], "all clients should be the same pointer")
-		assert.Equal(t, dbs[0], dbs[i], "all databases should be the same pointer")
+		assert.Equal(t, clients[0], clients[i], "all clients should be nil")
+		assert.Equal(t, dbs[0], dbs[i], "all databases should be nil")
 	}
 }
 
@@ -190,11 +199,21 @@ func TestMongoClient_RetryAfterFailure(t *testing.T) {
 
 	client1, db1, err1 := Init(ctx, cfg, log)
 	assert.Error(t, err1, "first Init should fail with invalid URI")
-	assert.NotNil(t, client1, "client should be returned even on ping failure")
-	assert.NotNil(t, db1, "db should be returned even on ping failure")
+	assert.Nil(t, client1, "client should be nil on connection failure")
+	assert.Nil(t, db1, "db should be nil on connection failure")
 
 	client2, db2, err2 := Init(ctx, cfg, log)
-	assert.Equal(t, client1, client2, "should return same client on retry after ping failure")
-	assert.Equal(t, db1, db2, "should return same db on retry after ping failure")
-	assert.Equal(t, err1, err2)
+	assert.Equal(t, client1, client2, "both clients should be nil")
+	assert.Equal(t, db1, db2, "both databases should be nil")
+	assert.Error(t, err2)
+}
+
+// reset clears the singleton without going through Shutdown (helper for tests).
+// test helper - do not call from prod code
+func reset() {
+	mu.Lock()
+	defer mu.Unlock()
+	client = nil
+	db = nil
+	initErr = nil
 }

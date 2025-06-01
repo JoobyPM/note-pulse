@@ -44,22 +44,47 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 		return nil, nil, err
 	}
 
-	pingErr := cli.Ping(ctx, readpref.Primary())
+	// Retry ping with backoff for a total of ~5 seconds
+	retries := []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+	var pingErr error
+
+	for i, delay := range retries {
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		pingErr = cli.Ping(pingCtx, readpref.Primary())
+		cancel()
+
+		if pingErr == nil {
+			break
+		}
+
+		log.Error("ping attempt failed", "attempt", i+1, "err", pingErr)
+
+		// Don't sleep on the last attempt
+		if i < len(retries)-1 {
+			select {
+			case <-ctx.Done():
+				_ = cli.Disconnect(ctx)
+				return nil, nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+
 	if pingErr != nil {
-		log.Error("failed to ping mongo", "err", pingErr)
+		log.Error("failed to ping mongo after retries", "err", pingErr)
+		_ = cli.Disconnect(ctx)
+		return nil, nil, pingErr
 	}
 
 	database := cli.Database(cfg.MongoDBName)
 
 	client = cli
 	db = database
-	initErr = pingErr
+	initErr = nil
 
-	if pingErr == nil {
-		log.Info("successfully connected to mongo", "db", cfg.MongoDBName)
-	}
+	log.Info("successfully connected to mongo", "db", cfg.MongoDBName)
 
-	return client, db, pingErr
+	return client, db, nil
 }
 
 // Client returns the singleton MongoDB client instance.
