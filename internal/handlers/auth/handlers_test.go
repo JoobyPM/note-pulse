@@ -193,7 +193,7 @@ func TestJWTMiddleware_HappyPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 
-	var got map[string]interface{}
+	var got map[string]any
 	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Equal(t, "60d5ecb74b24c4f9b8c2b1a1", got["uid"])
 	assert.Equal(t, "test@example.com", got["email"])

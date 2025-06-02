@@ -142,9 +142,12 @@ func setupRouter() *fiber.App {
 	authGrp.Post("/sign-up", h.SignUp)
 	authGrp.Post("/sign-in", limiterMW, h.SignIn)
 
-	// Example protected route (for testing JWT middleware)
+	// Examples of protected routes (for testing JWT middleware)
 	protected := v1.Group("/protected", jwtMiddleware)
 	protected.Get("/profile", profile)
+
+	// User profile endpoint
+	v1.Get("/me", jwtMiddleware, me)
 
 	return app
 }
@@ -164,5 +167,22 @@ func profile(c *fiber.Ctx) error {
 		"user_id": userID,
 		"email":   userEmail,
 		"message": "This is a protected route",
+	})
+}
+
+// @Summary Get current user
+// @Description Get current user information
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Success 200 {object} map[string]string
+// @Router /me [get]
+func me(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	userEmail := c.Locals("userEmail").(string)
+	return c.JSON(fiber.Map{
+		"uid":   userID,
+		"email": userEmail,
 	})
 }
