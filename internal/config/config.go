@@ -128,5 +128,12 @@ func (c Config) Validate() error {
 	if c.JWTExpiryMinutes <= 0 {
 		return errors.New("JWT_EXPIRY_MINUTES must be greater than 0")
 	}
+	// Validate JWT algorithm
+	switch c.JWTAlgorithm {
+	case "HS256", "RS256":
+		// Valid algorithms
+	default:
+		return errors.New("JWT_ALGORITHM must be either HS256 or RS256")
+	}
 	return nil
 }

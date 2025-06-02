@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"note-pulse/internal/clients/mongo"
@@ -39,6 +40,16 @@ func setupRouter() *fiber.App {
 	if err := crypto.RegisterPasswordValidator(v); err != nil {
 		logger.L().Error("failed to register password validator", "err", err)
 		panic(err)
+	}
+
+	// Validate JWT algorithm at boot
+	alg := strings.ToUpper(cfg.JWTAlgorithm)
+	switch alg {
+	case "HS256", "RS256":
+		// Valid algorithms
+	default:
+		logger.L().Error("unsupported JWT algorithm", "algorithm", cfg.JWTAlgorithm)
+		panic("unsupported JWT algorithm: " + cfg.JWTAlgorithm)
 	}
 
 	app := fiber.New(fiber.Config{

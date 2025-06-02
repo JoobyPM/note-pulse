@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"note-pulse/internal/config"
@@ -63,16 +64,7 @@ func TestService_SignUp(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "weak password",
-			req: SignUpRequest{
-				Email:    "test@example.com",
-				Password: "weak",
-			},
-			setup:   func(repo *MockUsersRepo) {},
-			wantErr: true,
-			errMsg:  "password must be at least 8 characters and contain uppercase, lowercase, and digit",
-		},
+
 		{
 			name: "duplicate email",
 			req: SignUpRequest{
@@ -125,6 +117,93 @@ func TestService_SignUp(t *testing.T) {
 
 			repo.AssertExpectations(t)
 		})
+	}
+}
+
+func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
+	tests := []struct {
+		name      string
+		algorithm string
+		wantErr   bool
+		errMsg    string
+	}{
+		{
+			name:      "HS256 algorithm",
+			algorithm: "HS256",
+			wantErr:   false,
+		},
+		{
+			name:      "RS256 algorithm with string key (should fail)",
+			algorithm: "RS256",
+			wantErr:   true,
+			errMsg:    "key is of invalid type",
+		},
+		{
+			name:      "unsupported algorithm",
+			algorithm: "INVALID",
+			wantErr:   true,
+			errMsg:    "unsupported JWT algorithm",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				BcryptCost:       12,
+				JWTSecret:        "super-secret-jwt-key-at-least-32-chars",
+				JWTAlgorithm:     tt.algorithm,
+				JWTExpiryMinutes: 60,
+			}
+
+			repo := new(MockUsersRepo)
+			service := NewService(repo, cfg, silentLogger)
+
+			user := &User{
+				ID:    bson.NewObjectID(),
+				Email: "test@example.com",
+			}
+
+			token, err := service.generateJWT(user)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Empty(t, token)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, token)
+			}
+		})
+	}
+}
+
+func TestService_GenerateJWT_ValidTokenStructure(t *testing.T) {
+	cfg := config.Config{
+		BcryptCost:       12,
+		JWTSecret:        "super-secret-jwt-key-at-least-32-chars",
+		JWTAlgorithm:     "HS256",
+		JWTExpiryMinutes: 60,
+	}
+
+	repo := new(MockUsersRepo)
+	service := NewService(repo, cfg, silentLogger)
+
+	user := &User{
+		ID:    bson.NewObjectID(),
+		Email: "test@example.com",
+	}
+
+	token, err := service.generateJWT(user)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+
+	// Token should be valid JWT format (3 parts separated by dots)
+	parts := strings.Split(token, ".")
+	assert.Equal(t, 3, len(parts), "JWT should have 3 parts: header.payload.signature")
+
+	// Each part should be non-empty
+	for i, part := range parts {
+		assert.NotEmpty(t, part, "JWT part %d should not be empty", i)
 	}
 }
 

@@ -195,6 +195,39 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "JWT_SECRET must be at least 32 characters for HS256",
 		},
+		{
+			name: "valid RS256 algorithm",
+			config: Config{
+				AppPort:          8080,
+				BcryptCost:       12,
+				SignInRatePerMin: 5,
+				LogLevel:         "info",
+				LogFormat:        "json",
+				MongoURI:         "mongodb://localhost:27017",
+				MongoDBName:      "test",
+				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
+				JWTAlgorithm:     "RS256",
+				JWTExpiryMinutes: 60,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid JWT algorithm",
+			config: Config{
+				AppPort:          8080,
+				BcryptCost:       12,
+				SignInRatePerMin: 5,
+				LogLevel:         "info",
+				LogFormat:        "json",
+				MongoURI:         "mongodb://localhost:27017",
+				MongoDBName:      "test",
+				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
+				JWTAlgorithm:     "INVALID",
+				JWTExpiryMinutes: 60,
+			},
+			wantErr: true,
+			errMsg:  "JWT_ALGORITHM must be either HS256 or RS256",
+		},
 	}
 
 	for _, tt := range tests {
@@ -202,7 +235,9 @@ func TestConfig_Validate(t *testing.T) {
 			err := tt.config.Validate()
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
+				if err != nil {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
 			} else {
 				assert.NoError(t, err)
 			}

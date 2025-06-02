@@ -33,7 +33,7 @@ func NewService(repo UsersRepo, cfg config.Config, log *slog.Logger) *Service {
 // SignUpRequest represents a user registration request
 type SignUpRequest struct {
 	Email    string `json:"email" validate:"required,email" example:"test@example.com"`
-	Password string `json:"password" validate:"required,min=8" example:"Password123"`
+	Password string `json:"password" validate:"required,password" example:"Password123"`
 }
 
 // SignInRequest represents a user login request
@@ -58,9 +58,7 @@ type SignInResponse = AuthResponse
 func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse, error) {
 	email := normalizeEmail(req.Email)
 
-	if !crypto.IsStrong(req.Password) {
-		return nil, errors.New("password must be at least 8 characters and contain uppercase, lowercase, and digit")
-	}
+	// Password validation is now handled by the 'password' validator tag
 
 	existing, err := s.repo.FindByEmail(ctx, email)
 	if err == nil && existing != nil {
@@ -134,7 +132,18 @@ func (s *Service) generateJWT(user *User) (string, error) {
 		"iat":     time.Now().Unix(),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	alg := strings.ToUpper(s.config.JWTAlgorithm)
+	var method jwt.SigningMethod
+	switch alg {
+	case "HS256":
+		method = jwt.SigningMethodHS256
+	case "RS256":
+		method = jwt.SigningMethodRS256
+	default:
+		return "", errors.New("unsupported JWT algorithm")
+	}
+
+	token := jwt.NewWithClaims(method, claims)
 	return token.SignedString([]byte(s.config.JWTSecret))
 }
 

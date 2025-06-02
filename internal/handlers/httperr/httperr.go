@@ -29,7 +29,6 @@ func Fail(err E) error {
 var (
 	ErrBadRequest      = E{Status: 400, Message: "Bad Request"}
 	ErrUnauthorized    = E{Status: 401, Message: "Unauthorized"}
-	ErrConflict        = E{Status: 409, Message: "Conflict"}
 	ErrTooManyRequests = E{Status: 429, Message: "Too Many Requests"}
 	ErrInternal        = E{Status: 500, Message: "Internal Server Error"}
 )
