@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,6 +19,28 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+// limitedWriter wraps an io.Writer and limits the amount of data written
+type limitedWriter struct {
+	w     io.Writer
+	limit int64
+	n     int64
+}
+
+func (lw *limitedWriter) Write(p []byte) (int, error) {
+	if lw.n >= lw.limit {
+		// Still drain the data so the pipe can't fill, but signal "written"
+		lw.n += int64(len(p))
+		return len(p), nil
+	}
+	remaining := lw.limit - lw.n
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	n, err := lw.w.Write(p)
+	lw.n += int64(n)
+	return len(p), err // Return original length to satisfy interface
+}
 
 // TestEnvironment holds the test infrastructure
 type TestEnvironment struct {
@@ -70,22 +94,26 @@ func startMongoTC(ctx context.Context, t *testing.T) (string, func(), error) {
 }
 
 // startServerWithEnv starts the application server with custom environment variables
-func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extraEnv map[string]string) (string, *exec.Cmd, context.CancelFunc, error) {
+func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extraEnv map[string]string) (string, *exec.Cmd, context.CancelFunc, *bytes.Buffer, error) {
 	t.Helper()
 	t.Log("Starting server")
 
 	appPort, err := randomPort()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 
-	//TODO: It would be good to capture stderr for debugging
 	// prepare /dev/null for stdout
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 	t.Cleanup(func() { _ = devNull.Close() })
+
+	// Capture stderr for debugging with size limit
+	const maxStderrSize = 64 * 1024 // 64KB max
+	stderrBuf := &bytes.Buffer{}
+	limitedStderr := &limitedWriter{w: stderrBuf, limit: maxStderrSize}
 
 	// Add a small delay to ensure MongoDB is fully ready
 	time.Sleep(2 * time.Second)
@@ -93,6 +121,10 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 	srvCtx, srvCancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(srvCtx, "go", "run", "./cmd/server")
 	cmd.Dir = "../" // project root
+
+	// Make the wrapper the leader of a new process group
+	// so that we can later send a signal to the whole tree.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	envVars := []string{
 		fmt.Sprintf("MONGO_URI=%s", mongoURI),
 		"MONGO_DB_NAME=e2e",
@@ -108,16 +140,16 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 
 	cmd.Env = append(os.Environ(), envVars...)
 	cmd.Stdout = devNull // no extra goroutines, no console spam
-	cmd.Stderr = devNull //TODO: It would be good to capture stderr for debugging
+	cmd.Stderr = limitedStderr
 
 	t.Logf("Starting server with MongoDB URI: %s, Port: %s", mongoURI, appPort)
 	if err := cmd.Start(); err != nil {
 		srvCancel()
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%s", appPort)
-	return baseURL, cmd, srvCancel, nil
+	return baseURL, cmd, srvCancel, stderrBuf, nil
 }
 
 // waitHealthy waits for the server to respond to health checks
@@ -183,11 +215,17 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 	require.NoError(t, err)
 	t.Cleanup(mongoTerminate)
 
-	baseURL, cmd, srvCancel, err := startServerWithEnv(ctx, t, mongoURI, extraEnv)
+	baseURL, cmd, srvCancel, stderrBuf, err := startServerWithEnv(ctx, t, mongoURI, extraEnv)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		srvCancel()
+		srvCancel() // cancels the context (still keep it)
+
+		// Best-effort: kill the entire process group (-pgid)
+		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+
 		done := make(chan struct{})
 		go func() {
 			_ = cmd.Wait() // waits for pipes to drain
@@ -199,9 +237,20 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 			_ = cmd.Process.Kill()
 			<-done
 		}
+		
+		// Dump stderr on cleanup if there's content
+		if stderrBuf.Len() > 0 {
+			t.Logf("Server stderr output (%d bytes):\n%s", stderrBuf.Len(), stderrBuf.String())
+		}
 	})
 
-	require.NoError(t, waitHealthy(baseURL, 30*time.Second), "server never responded on %s", baseURL)
+	if err := waitHealthy(baseURL, 30*time.Second); err != nil {
+		// Dump stderr on health check failure
+		if stderrBuf != nil && stderrBuf.Len() > 0 {
+			t.Logf("Server stderr output on health check failure (%d bytes):\n%s", stderrBuf.Len(), stderrBuf.String())
+		}
+		require.NoError(t, err, "server never responded on %s", baseURL)
+	}
 
 	return &TestEnvironment{
 		BaseURL: baseURL,
