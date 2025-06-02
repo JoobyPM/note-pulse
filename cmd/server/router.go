@@ -9,14 +9,17 @@ import (
 	"note-pulse/internal/config"
 	authHandlers "note-pulse/internal/handlers/auth"
 	"note-pulse/internal/handlers/httperr"
+	notesHandlers "note-pulse/internal/handlers/notes"
 	"note-pulse/internal/logger"
 	authServices "note-pulse/internal/services/auth"
+	notesServices "note-pulse/internal/services/notes"
 	"note-pulse/internal/utils/crypto"
 
 	_ "note-pulse/docs" // Load swagger docs
 
 	"github.com/go-playground/validator/v10"
 	jwtware "github.com/gofiber/contrib/jwt"
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -28,12 +31,7 @@ import (
 )
 
 // setupRouter configures and returns a Fiber app with all routes
-func setupRouter() *fiber.App {
-	cfg, err := config.Load()
-	if err != nil {
-		logger.L().Error("config load failed in router", "err", err)
-		panic(err)
-	}
+func setupRouter(cfg config.Config) *fiber.App {
 
 	// Initialize validator and register password validation
 	v := validator.New()
@@ -53,10 +51,7 @@ func setupRouter() *fiber.App {
 	}
 
 	app := fiber.New(fiber.Config{
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			logger.L().Error("fiber error", "err", err, "path", c.Path(), "method", c.Method())
-			return httperr.Handler(c, err)
-		},
+		ErrorHandler: httperr.Handler,
 	})
 
 	// Global middlewares
@@ -66,8 +61,8 @@ func setupRouter() *fiber.App {
 		AllowHeaders: "Content-Type, Authorization",
 	}))
 
-	// Health check endpoint, separate from the group v1, to avoid logging in the health check
-	app.Get("/api/v1/healthz", func(c *fiber.Ctx) error {
+	// Health check endpoint, outside versioned API to appease scanners and to avoid logging
+	app.Get("/healthz", func(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 		defer cancel()
 
@@ -93,7 +88,6 @@ func setupRouter() *fiber.App {
 
 	app.Get("/docs/*", swagger.HandlerDefault)
 
-	// API v1 group
 	v1 := app.Group("/api/v1", fiberlogger.New())
 
 	jwtMiddleware := jwtware.New(jwtware.Config{
@@ -137,10 +131,31 @@ func setupRouter() *fiber.App {
 
 	usersRepo := mongo.NewUsersRepo(mongo.DB())
 	authSvc := authServices.NewService(usersRepo, cfg, logger.L())
-	h := authHandlers.NewHandlers(authSvc, v)
+	authHandlers := authHandlers.NewHandlers(authSvc, v)
 
-	authGrp.Post("/sign-up", h.SignUp)
-	authGrp.Post("/sign-in", limiterMW, h.SignIn)
+	authGrp.Post("/sign-up", authHandlers.SignUp)
+	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)
+
+	// Notes routes
+	notesRepo, err := mongo.NewNotesRepo(mongo.DB())
+	if err != nil {
+		logger.L().Error("failed to create notes repository", "error", err)
+		panic(err)
+	}
+	hub := notesServices.NewHub(cfg.WSOutboxBuffer)
+	notesSvc := notesServices.NewService(notesRepo, hub, logger.L())
+	notesH := notesHandlers.NewHandlers(notesSvc, v)
+
+	notesGrp := v1.Group("/notes", jwtMiddleware)
+	notesGrp.Post("/", notesH.Create)
+	notesGrp.Get("/", notesH.List)
+	notesGrp.Patch("/:id", notesH.Update)
+	notesGrp.Delete("/:id", notesH.Delete)
+
+	// WebSocket routes
+	wsHandlers := notesHandlers.NewWebSocketHandlers(hub, cfg.JWTSecret, cfg.WSMaxSessionSec)
+	app.Use("/ws", notesHandlers.LogWSConnections())
+	app.Get("/ws/notes/stream", wsHandlers.WSUpgrade, websocket.New(wsHandlers.WSNotesStream))
 
 	// Examples of protected routes (for testing JWT middleware)
 	protected := v1.Group("/protected", jwtMiddleware)

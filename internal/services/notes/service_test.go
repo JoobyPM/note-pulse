@@ -1,0 +1,455 @@
+package notes
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
+
+var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+// MockNotesRepo is a mock implementation of NotesRepo
+type MockNotesRepo struct {
+	mock.Mock
+}
+
+func (m *MockNotesRepo) Create(ctx context.Context, note *Note) error {
+	args := m.Called(ctx, note)
+	return args.Error(0)
+}
+
+func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.ObjectID, limit int) ([]*Note, error) {
+	args := m.Called(ctx, userID, after, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*Note), args.Error(1)
+}
+
+func (m *MockNotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error) {
+	args := m.Called(ctx, userID, noteID, patch)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*Note), args.Error(1)
+}
+
+func (m *MockNotesRepo) Delete(ctx context.Context, userID, noteID bson.ObjectID) error {
+	args := m.Called(ctx, userID, noteID)
+	return args.Error(0)
+}
+
+// MockBus is a mock implementation of Bus
+type MockBus struct {
+	mock.Mock
+}
+
+func (m *MockBus) Broadcast(ctx context.Context, ev NoteEvent) {
+	m.Called(ctx, ev)
+}
+
+func TestService_Create(t *testing.T) {
+	userID := bson.NewObjectID()
+
+	tests := []struct {
+		name    string
+		req     CreateNoteRequest
+		setup   func(*MockNotesRepo, *MockBus)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "successful creation",
+			req: CreateNoteRequest{
+				Title: "Test Note",
+				Body:  "Test body",
+				Color: "#FF0000",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "created"
+				})).Return()
+			},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			req: CreateNoteRequest{
+				Title: "Test Note",
+				Body:  "Test body",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New("db error"))
+			},
+			wantErr: true,
+			errMsg:  "failed to create note",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+			tt.setup(repo, bus)
+
+			service := NewService(repo, bus, silentLogger)
+			resp, err := service.Create(context.Background(), userID, tt.req)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.Nil(t, resp)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, resp)
+				assert.NotNil(t, resp.Note)
+				assert.Equal(t, tt.req.Title, resp.Note.Title)
+				assert.Equal(t, tt.req.Body, resp.Note.Body)
+				assert.Equal(t, tt.req.Color, resp.Note.Color)
+				assert.Equal(t, userID, resp.Note.UserID)
+				assert.False(t, resp.Note.ID.IsZero())
+				assert.False(t, resp.Note.CreatedAt.IsZero())
+				assert.False(t, resp.Note.UpdatedAt.IsZero())
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestService_List(t *testing.T) {
+	userID := bson.NewObjectID()
+	noteID1 := bson.NewObjectID()
+	noteID2 := bson.NewObjectID()
+
+	mockNotes := []*Note{
+		{
+			ID:        noteID1,
+			UserID:    userID,
+			Title:     "Note 1",
+			Body:      "Body 1",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			ID:        noteID2,
+			UserID:    userID,
+			Title:     "Note 2",
+			Body:      "Body 2",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	tests := []struct {
+		name    string
+		req     ListNotesRequest
+		setup   func(*MockNotesRepo, *MockBus)
+		wantErr bool
+		errMsg  string
+		check   func(*testing.T, *ListNotesResponse)
+	}{
+		{
+			name: "successful list with default limit",
+			req:  ListNotesRequest{},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(mockNotes, nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Empty(t, resp.NextCursor) // Less than limit, no next cursor
+			},
+		},
+		{
+			name: "successful list with custom limit",
+			req: ListNotesRequest{
+				Limit: 25,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 25).Return(mockNotes[:1], nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 1)
+				assert.Empty(t, resp.NextCursor)
+			},
+		},
+		{
+			name: "successful list with cursor and next page",
+			req: ListNotesRequest{
+				Limit:  2,
+				Cursor: noteID1.Hex(),
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("List", mock.Anything, userID, noteID1, 2).Return(mockNotes, nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Equal(t, noteID2.Hex(), resp.NextCursor) // Full page, has next cursor
+			},
+		},
+		{
+			name: "invalid cursor",
+			req: ListNotesRequest{
+				Cursor: "invalid-cursor",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to invalid cursor
+			},
+			wantErr: true,
+			errMsg:  "invalid cursor",
+		},
+		{
+			name: "repository error",
+			req:  ListNotesRequest{},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New("db error"))
+			},
+			wantErr: true,
+			errMsg:  "failed to retrieve notes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+			tt.setup(repo, bus)
+
+			service := NewService(repo, bus, silentLogger)
+			resp, err := service.List(context.Background(), userID, tt.req)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.Nil(t, resp)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, resp)
+				if tt.check != nil {
+					tt.check(t, resp)
+				}
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestService_Update(t *testing.T) {
+	userID := bson.NewObjectID()
+	noteID := bson.NewObjectID()
+	title := "Updated Title"
+	body := "Updated Body"
+	color := "#00FF00"
+
+	updatedNote := &Note{
+		ID:        noteID,
+		UserID:    userID,
+		Title:     title,
+		Body:      body,
+		Color:     color,
+		CreatedAt: time.Now().Add(-time.Hour),
+		UpdatedAt: time.Now(),
+	}
+
+	tests := []struct {
+		name    string
+		req     UpdateNoteRequest
+		setup   func(*MockNotesRepo, *MockBus)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "successful update",
+			req: UpdateNoteRequest{
+				Title: &title,
+				Body:  &body,
+				Color: &color,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(updatedNote, nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "updated"
+				})).Return()
+			},
+			wantErr: false,
+		},
+		{
+			name: "note not found",
+			req: UpdateNoteRequest{
+				Title: &title,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+			},
+			wantErr: true,
+			errMsg:  "note not found",
+		},
+		{
+			name: "repository error",
+			req: UpdateNoteRequest{
+				Title: &title,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("db error"))
+			},
+			wantErr: true,
+			errMsg:  "failed to update note",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+			tt.setup(repo, bus)
+
+			service := NewService(repo, bus, silentLogger)
+			resp, err := service.Update(context.Background(), userID, noteID, tt.req)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.Nil(t, resp)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, resp)
+				assert.NotNil(t, resp.Note)
+				assert.Equal(t, title, resp.Note.Title)
+				assert.Equal(t, body, resp.Note.Body)
+				assert.Equal(t, color, resp.Note.Color)
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestService_Delete(t *testing.T) {
+	userID := bson.NewObjectID()
+	noteID := bson.NewObjectID()
+
+	tests := []struct {
+		name    string
+		setup   func(*MockNotesRepo, *MockBus)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "successful deletion",
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Delete", mock.Anything, userID, noteID).Return(nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "deleted" && ev.Note.ID == noteID && ev.Note.UserID == userID
+				})).Return()
+			},
+			wantErr: false,
+		},
+		{
+			name: "note not found",
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("note not found"))
+			},
+			wantErr: true,
+			errMsg:  "note not found",
+		},
+		{
+			name: "repository error",
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("db error"))
+			},
+			wantErr: true,
+			errMsg:  "failed to delete note",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+			tt.setup(repo, bus)
+
+			service := NewService(repo, bus, silentLogger)
+			err := service.Delete(context.Background(), userID, noteID)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestService_CrossUserSafety(t *testing.T) {
+	user2 := bson.NewObjectID()
+	noteID := bson.NewObjectID()
+
+	tests := []struct {
+		name      string
+		operation string
+		setup     func(*MockNotesRepo, *MockBus)
+	}{
+		{
+			name:      "update cross-user safety",
+			operation: "update",
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// User2 tries to update User1's note - should fail
+				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+			},
+		},
+		{
+			name:      "delete cross-user safety",
+			operation: "delete",
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// User2 tries to delete User1's note - should fail
+				repo.On("Delete", mock.Anything, user2, noteID).Return(errors.New("note not found"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+			tt.setup(repo, bus)
+
+			service := NewService(repo, bus, silentLogger)
+
+			switch tt.operation {
+			case "update":
+				title := "Hacked"
+				req := UpdateNoteRequest{Title: &title}
+				resp, err := service.Update(context.Background(), user2, noteID, req)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "note not found")
+				assert.Nil(t, resp)
+			case "delete":
+				err := service.Delete(context.Background(), user2, noteID)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "note not found")
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}

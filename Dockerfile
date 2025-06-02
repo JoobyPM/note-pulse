@@ -2,7 +2,7 @@
 FROM golang:1.24.2-alpine AS builder
 
 # Install git for version info
-RUN apk add --no-cache git
+RUN apk add --no-cache git bash
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN go install github.com/swaggo/swag/cmd/swag@latest
 RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
 
 # Build the application using shared build script
-RUN chmod +x scripts/build.sh && \
+RUN chmod +x ./scripts/build.sh && \
     CGO_ENABLED=0 GOOS=linux ./scripts/build.sh ./cmd/server main
 
 # Build the ping binary

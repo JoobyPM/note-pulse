@@ -20,6 +20,11 @@ func (e E) JSON(c *fiber.Ctx) error {
 	return c.Status(e.Status).JSON(e)
 }
 
+// New creates a new HTTP error with the given status code and message
+func New(status int, message string) E {
+	return E{Status: status, Message: message}
+}
+
 // Fail returns the error for Fiber's global error handler to process
 func Fail(err E) error {
 	return err

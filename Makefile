@@ -42,6 +42,8 @@ install-tools:         ## install required tools (golangci-lint)
 
 check: tidy swagger install-tools format vet lint test build e2e-check
 
+check-offline: format vet lint test build e2e-check
+
 e2e:
 	go test -tags e2e ./test -timeout 2m -v
 

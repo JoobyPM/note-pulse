@@ -15,7 +15,7 @@ func TestHealthzE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 
 	// Test health endpoint
-	resp, err := env.Client.Get(env.BaseURL + "/api/v1/healthz")
+	resp, err := env.Client.Get(env.BaseURL + "/healthz")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

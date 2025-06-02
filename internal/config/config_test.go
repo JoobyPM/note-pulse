@@ -26,6 +26,8 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.Equal(t, "this-is-a-default-jwt-secret-key-with-32-plus-characters", cfg.JWTSecret)
 	assert.Equal(t, "HS256", cfg.JWTAlgorithm)
 	assert.Equal(t, 60, cfg.JWTExpiryMinutes)
+	assert.Equal(t, 900, cfg.WSMaxSessionSec)
+	assert.Equal(t, 256, cfg.WSOutboxBuffer)
 }
 
 func TestConfig_LoadWithOverride(t *testing.T) {
@@ -73,6 +75,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: false,
 		},
@@ -89,6 +93,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "APP_PORT must be greater than 0",
@@ -106,6 +112,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "LOG_LEVEL cannot be empty",
@@ -123,6 +131,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "JWT_SECRET cannot be empty",
@@ -140,6 +150,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "BCRYPT_COST must be between 10 and 16",
@@ -157,6 +169,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "BCRYPT_COST must be between 10 and 16",
@@ -174,6 +188,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "SIGNIN_RATE_PER_MIN must be greater than or equal to 1",
@@ -191,6 +207,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "short",
 				JWTAlgorithm:     "HS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "JWT_SECRET must be at least 32 characters for HS256",
@@ -208,6 +226,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "RS256",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: false,
 		},
@@ -224,6 +244,8 @@ func TestConfig_Validate(t *testing.T) {
 				JWTSecret:        "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:     "INVALID",
 				JWTExpiryMinutes: 60,
+				WSMaxSessionSec:  900,
+				WSOutboxBuffer:   256,
 			},
 			wantErr: true,
 			errMsg:  "JWT_ALGORITHM must be either HS256 or RS256",
@@ -272,6 +294,8 @@ func clearConfigEnvVars(t *testing.T) {
 		"JWT_SECRET",
 		"JWT_ALGORITHM",
 		"JWT_EXPIRY_MINUTES",
+		"WS_MAX_SESSION_SEC",
+		"WS_OUTBOX_BUFFER",
 	}
 
 	for _, envVar := range envVars {

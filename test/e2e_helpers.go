@@ -122,7 +122,7 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 
 // waitHealthy waits for the server to respond to health checks
 func waitHealthy(baseURL string, timeout time.Duration) error {
-	healthURL := fmt.Sprintf("%s/api/v1/healthz", baseURL)
+	healthURL := fmt.Sprintf("%s/healthz", baseURL)
 	client := &http.Client{Timeout: 2 * time.Second}
 
 	deadline := time.Now().Add(timeout)

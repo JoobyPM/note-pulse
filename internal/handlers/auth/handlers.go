@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"note-pulse/internal/handlers/httperr"
+	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 
 	"github.com/go-playground/validator/v10"
@@ -42,10 +43,12 @@ func NewHandlers(authService AuthService, validator *validator.Validate) *Handle
 func (h *Handlers) SignUp(c *fiber.Ctx) error {
 	var req auth.SignUpRequest
 	if err := c.BodyParser(&req); err != nil {
+		logger.L().Warn("failed to parse signup request body", "handler", "SignUp", "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	if err := h.validator.Struct(req); err != nil {
+		logger.L().Warn("signup request validation failed", "handler", "SignUp", "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  400,
 			Message: "Invalid input: " + err.Error(),
@@ -54,6 +57,7 @@ func (h *Handlers) SignUp(c *fiber.Ctx) error {
 
 	resp, err := h.authService.SignUp(c.Context(), req)
 	if err != nil {
+		logger.L().Error("signup service failed", "handler", "SignUp", "email", req.Email, "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  400,
 			Message: err.Error(),
@@ -77,10 +81,12 @@ func (h *Handlers) SignUp(c *fiber.Ctx) error {
 func (h *Handlers) SignIn(c *fiber.Ctx) error {
 	var req auth.SignInRequest
 	if err := c.BodyParser(&req); err != nil {
+		logger.L().Warn("failed to parse signin request body", "handler", "SignIn", "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	if err := h.validator.Struct(req); err != nil {
+		logger.L().Warn("signin request validation failed", "handler", "SignIn", "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  400,
 			Message: "Invalid input: " + err.Error(),
@@ -89,6 +95,7 @@ func (h *Handlers) SignIn(c *fiber.Ctx) error {
 
 	resp, err := h.authService.SignIn(c.Context(), req)
 	if err != nil {
+		logger.L().Error("signin service failed", "handler", "SignIn", "email", req.Email, "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  401,
 			Message: err.Error(),

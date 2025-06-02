@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"note-pulse/internal/handlers/httperr"
+	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 	"note-pulse/internal/utils/crypto"
 
@@ -51,6 +52,10 @@ func (m *MockAuthService) SignIn(ctx context.Context, req auth.SignInRequest) (*
 }
 
 func setupTestApp(authService *MockAuthService) *fiber.App {
+	if err := logger.InitTest(); err != nil {
+		panic(err)
+	}
+
 	v := validator.New()
 	if err := crypto.RegisterPasswordValidator(v); err != nil {
 		panic(err)
@@ -81,6 +86,10 @@ func setupTestApp(authService *MockAuthService) *fiber.App {
 }
 
 func setupTestAppWithJWT(authService *MockAuthService) *fiber.App {
+	if err := logger.InitTest(); err != nil {
+		panic(err)
+	}
+
 	v := validator.New()
 	if err := crypto.RegisterPasswordValidator(v); err != nil {
 		panic(err)
