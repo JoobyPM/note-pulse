@@ -15,6 +15,10 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
+
 # Build the application with same ldflags as Makefile
 RUN set -x && \
     REV=$(git rev-parse --short HEAD 2>/dev/null || echo "none") && \
@@ -24,6 +28,9 @@ RUN set -x && \
         -ldflags "-s -w -X main.version=$TAG -X main.commit=$REV -X main.builtAt=$BUILD_TIME" \
         -o main ./cmd/server
 
+# Build the ping binary
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o ping ./cmd/ping
+
 # Final stage - distroless
 FROM gcr.io/distroless/static:nonroot
 
@@ -31,6 +38,7 @@ WORKDIR /
 
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
+COPY --from=builder /app/ping .
 
 # Use non-root user
 USER nonroot:nonroot

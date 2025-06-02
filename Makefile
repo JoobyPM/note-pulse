@@ -11,7 +11,7 @@ LD_FLAGS    := -s -w \
 
 GO_SRCS := $(shell find cmd internal -name '*.go') go.mod go.sum
 
-.PHONY: all build test run vet lint check format swagger install-tools e2e-check e2e
+.PHONY: all build test run vet lint check format swagger install-tools e2e-check e2e tidy
 
 all: build
 
@@ -30,6 +30,9 @@ run:
 vet:
 	go vet ./...
 
+tidy:
+	go mod tidy
+
 lint:
 	@hash golangci-lint 2>/dev/null || { echo "golangci-lint missing"; exit 1; }
 	golangci-lint run ./...
@@ -45,7 +48,7 @@ format:
 install-tools:         ## install required tools (golangci-lint)
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-check: install-tools format vet lint test build e2e-check
+check: tidy swagger install-tools format vet lint test build e2e-check
 
 e2e:
 	go test -tags e2e ./test -timeout 2m -v
@@ -55,5 +58,5 @@ e2e-check:
 
 ## ---------- swagger spec ---------------------------------------------
 swagger:               ## fresh OpenAPI JSON/YAML
-	go run github.com/swaggo/swag/v2/cmd/swag@latest \
-		init -g ./cmd/server/main.go --parseDependency --v3.1 --parseInternal --output ./docs/openapi
+	go run github.com/swaggo/swag/cmd/swag@latest \
+		init -g ./docs/swagger.go --parseDependency --parseInternal --output ./docs/openapi
