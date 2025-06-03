@@ -19,6 +19,8 @@ type Config struct {
 	JWTSecret        string `mapstructure:"JWT_SECRET"`
 	JWTAlgorithm     string `mapstructure:"JWT_ALGORITHM"`
 	JWTExpiryMinutes int    `mapstructure:"JWT_EXPIRY_MINUTES"`
+	WSMaxSessionSec  int    `mapstructure:"WS_MAX_SESSION_SEC"`
+	WSOutboxBuffer   int    `mapstructure:"WS_OUTBOX_BUFFER"`
 }
 
 var (
@@ -57,6 +59,8 @@ func Load() (Config, error) {
 	v.SetDefault("JWT_SECRET", "this-is-a-default-jwt-secret-key-with-32-plus-characters")
 	v.SetDefault("JWT_ALGORITHM", "HS256")
 	v.SetDefault("JWT_EXPIRY_MINUTES", 60)
+	v.SetDefault("WS_MAX_SESSION_SEC", 900)
+	v.SetDefault("WS_OUTBOX_BUFFER", 256) // WebSocket channel buffer size
 
 	// Configure Viper to read from .env file (if present)
 	v.SetConfigName(".env")
@@ -127,6 +131,12 @@ func (c Config) Validate() error {
 	}
 	if c.JWTExpiryMinutes <= 0 {
 		return errors.New("JWT_EXPIRY_MINUTES must be greater than 0")
+	}
+	if c.WSMaxSessionSec <= 0 {
+		return errors.New("WS_MAX_SESSION_SEC must be greater than 0")
+	}
+	if c.WSOutboxBuffer <= 0 {
+		return errors.New("WS_OUTBOX_BUFFER must be greater than 0")
 	}
 	// Validate JWT algorithm
 	switch c.JWTAlgorithm {

@@ -1,13 +1,4 @@
 # Makefile - build, lint for Note-Pulse
-# ───────── meta ─────────
-REV         := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
-TAG         := $(shell git describe --tags --dirty --always 2>/dev/null || echo "dev")
-BUILD_TIME  := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-
-LD_FLAGS    := -s -w \
-	-X main.version=$(TAG) \
-	-X main.commit=$(REV) \
-	-X main.builtAt=$(BUILD_TIME)
 
 GO_SRCS := $(shell find cmd internal -name '*.go') go.mod go.sum
 
@@ -18,8 +9,9 @@ all: build
 ## ---------- build / lint / test --------------------------------------
 build: bin/server
 
-bin/server: $(GO_SRCS)
-	go build -trimpath -ldflags "$(LD_FLAGS)" -o $@ ./cmd/server
+bin/server: $(GO_SRCS) scripts/build.sh
+	@chmod +x scripts/build.sh
+	./scripts/build.sh ./cmd/server $@
 
 test:                  ## unit tests
 	go test ./...
@@ -49,6 +41,8 @@ install-tools:         ## install required tools (golangci-lint)
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 check: tidy swagger install-tools format vet lint test build e2e-check
+
+check-offline: format vet lint test build e2e-check
 
 e2e:
 	go test -tags e2e ./test -timeout 2m -v

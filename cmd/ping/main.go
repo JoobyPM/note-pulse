@@ -13,6 +13,11 @@ import (
 	"note-pulse/internal/logger"
 )
 
+const (
+	// LocalhostURLFormat is the format string for localhost health check URL
+	LocalhostURLFormat = "http://localhost:%d/healthz"
+)
+
 // healthResp matches the JSON shape returned by /api/v1/healthz
 type healthResp struct {
 	Status string `json:"status"`
@@ -36,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	url := fmt.Sprintf("http://localhost:%d/api/v1/healthz", cfg.AppPort)
+	url := fmt.Sprintf(LocalhostURLFormat, cfg.AppPort)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()

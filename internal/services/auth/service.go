@@ -103,7 +103,11 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 
 	user, err := s.repo.FindByEmail(ctx, email)
 	if err != nil {
-		s.log.Error("failed to find user by email", "error", err)
+		if err.Error() == "user not found" {
+			s.log.Info("user not found for signin", "email", email)
+		} else {
+			s.log.Error("failed to find user by email", "error", err)
+		}
 		return nil, errors.New("invalid credentials")
 	}
 

@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -17,7 +18,7 @@ var (
 	db      *mongo.Database
 	initErr error
 	mu      sync.RWMutex
-	drv     driver = mongoDriver{} // production default
+	drv     driver = mongoDriver{}
 )
 
 // Init initializes the MongoDB connection (first call wins, thread-safe).
@@ -57,7 +58,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 			break
 		}
 
-		log.Error("ping attempt failed", "attempt", i+1, "err", pingErr)
+		log.Error("ping attempt failed", "attempt", i+1, "total_attempts", len(retries), "err", pingErr)
 
 		// Don't sleep on the last attempt
 		if i < len(retries)-1 {
@@ -73,7 +74,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 	if pingErr != nil {
 		log.Error("failed to ping mongo after retries", "err", pingErr)
 		_ = drv.Disconnect(ctx, cli)
-		return nil, nil, pingErr
+		return nil, nil, fmt.Errorf("mongo ping: %w", pingErr)
 	}
 
 	database := cli.Database(cfg.MongoDBName)

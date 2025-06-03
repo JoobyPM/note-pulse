@@ -18,6 +18,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Build-time variables set by ldflags
+var (
+	version = "dev"
+	commit  = "none"
+	builtAt = "unknown"
+)
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
@@ -47,10 +54,10 @@ func main() {
 	}
 	logg.Info("connected to mongo", "db", db.Name())
 
-	logg.Info("starting NotePulse", "port", cfg.AppPort)
+	logg.Info("starting NotePulse", "port", cfg.AppPort, "version", version, "commit", commit, "built_at", builtAt)
 
 	// Setup router and start server
-	app := setupRouter()
+	app := setupRouter(cfg)
 	portStr := fmt.Sprintf(":%d", cfg.AppPort)
 
 	g.Go(func() error {
