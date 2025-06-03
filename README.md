@@ -34,4 +34,7 @@ The application can be configured using environment variables or a `.env` file:
 - `WS_MAX_SESSION_SEC` - Maximum WebSocket session duration in seconds (default: 900, 15 minutes)
 - `WS_OUTBOX_BUFFER` - WebSocket channel buffer size (default: 256)
 
+### Metrics Configuration
+- `ROUTE_METRICS_ENABLED` - Enable route metrics (default: true)
+
 WebSocket sessions are automatically terminated after the configured duration to prevent long-lived connections with expired tokens. Clients should reconnect with fresh JWT tokens when sessions expire.

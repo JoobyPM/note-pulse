@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	_ "note-pulse/docs" // Load swagger docs
 
 	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/adaptor/v2"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -27,6 +29,8 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
@@ -60,6 +64,47 @@ func setupRouter(cfg config.Config) *fiber.App {
 		AllowOrigins: "*",
 		AllowHeaders: "Content-Type, Authorization",
 	}))
+
+	if cfg.RouteMetricsEnabled {
+		httpRequestDuration := prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "http_request_duration_seconds",
+				Help:    "Duration of HTTP requests in seconds",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"method", "path", "status"},
+		)
+		httpRequestsTotal := prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_requests_total",
+				Help: "Total number of HTTP requests",
+			},
+			[]string{"method", "path", "status"},
+		)
+
+		prometheus.MustRegister(httpRequestDuration, httpRequestsTotal)
+
+		app.Use(func(c *fiber.Ctx) error {
+			start := time.Now()
+			err := c.Next()
+			duration := time.Since(start).Seconds()
+
+			method := c.Method()
+			path := c.Route().Path
+			status := c.Response().StatusCode()
+
+			statusStr := strconv.Itoa(status)
+			httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
+			httpRequestsTotal.WithLabelValues(method, path, statusStr).Inc()
+
+			return err
+		})
+
+		app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+		logger.L().Info("route metrics enabled")
+	} else {
+		logger.L().Info("route metrics disabled by config")
+	}
 
 	// Health check endpoint, outside versioned API to appease scanners and to avoid logging
 	app.Get("/healthz", func(c *fiber.Ctx) error {

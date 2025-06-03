@@ -9,20 +9,21 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	AppPort            int    `mapstructure:"APP_PORT"`
-	BcryptCost         int    `mapstructure:"BCRYPT_COST"`
-	SignInRatePerMin   int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
-	LogLevel           string `mapstructure:"LOG_LEVEL"`
-	LogFormat          string `mapstructure:"LOG_FORMAT"`
-	MongoURI           string `mapstructure:"MONGO_URI"`
-	MongoDBName        string `mapstructure:"MONGO_DB_NAME"`
-	JWTSecret          string `mapstructure:"JWT_SECRET"`
-	JWTAlgorithm       string `mapstructure:"JWT_ALGORITHM"`
-	WSMaxSessionSec    int    `mapstructure:"WS_MAX_SESSION_SEC"`
-	AccessTokenMinutes int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
-	RefreshTokenDays   int    `mapstructure:"REFRESH_TOKEN_DAYS"`
-	RefreshTokenRotate bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
-	WSOutboxBuffer     int    `mapstructure:"WS_OUTBOX_BUFFER"`
+	AppPort             int    `mapstructure:"APP_PORT"`
+	BcryptCost          int    `mapstructure:"BCRYPT_COST"`
+	SignInRatePerMin    int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
+	LogLevel            string `mapstructure:"LOG_LEVEL"`
+	LogFormat           string `mapstructure:"LOG_FORMAT"`
+	MongoURI            string `mapstructure:"MONGO_URI"`
+	MongoDBName         string `mapstructure:"MONGO_DB_NAME"`
+	JWTSecret           string `mapstructure:"JWT_SECRET"`
+	JWTAlgorithm        string `mapstructure:"JWT_ALGORITHM"`
+	WSMaxSessionSec     int    `mapstructure:"WS_MAX_SESSION_SEC"`
+	AccessTokenMinutes  int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
+	RefreshTokenDays    int    `mapstructure:"REFRESH_TOKEN_DAYS"`
+	RefreshTokenRotate  bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
+	WSOutboxBuffer      int    `mapstructure:"WS_OUTBOX_BUFFER"`
+	RouteMetricsEnabled bool   `mapstructure:"ROUTE_METRICS_ENABLED"`
 }
 
 var (
@@ -65,6 +66,7 @@ func Load() (Config, error) {
 	v.SetDefault("REFRESH_TOKEN_DAYS", 30)
 	v.SetDefault("REFRESH_TOKEN_ROTATE", true)
 	v.SetDefault("WS_OUTBOX_BUFFER", 256) // WebSocket channel buffer size
+	v.SetDefault("ROUTE_METRICS_ENABLED", true)
 
 	// Configure Viper to read from .env file (if present)
 	v.SetConfigName(".env")

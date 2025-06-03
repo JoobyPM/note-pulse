@@ -1,0 +1,13 @@
+# build artifacts
+bin/
+scripts/build.sh   # if it ever becomes world-writeable
+*.exe *.test *.out
+# vcs
+.git
+# editor / OS cruft
+*.swp *.DS_Store
+# test & docs
+test/
+
+#Docs
+*.md *.MD
