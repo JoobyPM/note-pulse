@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"note-pulse/internal/config"
 	"note-pulse/internal/utils/crypto"
@@ -24,6 +25,11 @@ type MockUsersRepo struct {
 	mock.Mock
 }
 
+// MockRefreshTokensRepo is a mock implementation of RefreshTokensRepo
+type MockRefreshTokensRepo struct {
+	mock.Mock
+}
+
 func (m *MockUsersRepo) Create(ctx context.Context, user *User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
@@ -35,6 +41,37 @@ func (m *MockUsersRepo) FindByEmail(ctx context.Context, email string) (*User, e
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*User), args.Error(1)
+}
+
+func (m *MockUsersRepo) FindByID(ctx context.Context, id bson.ObjectID) (*User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*User), args.Error(1)
+}
+
+func (m *MockRefreshTokensRepo) Create(ctx context.Context, userID bson.ObjectID, rawToken string, expiresAt time.Time) error {
+	args := m.Called(ctx, userID, rawToken, expiresAt)
+	return args.Error(0)
+}
+
+func (m *MockRefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*RefreshToken, error) {
+	args := m.Called(ctx, rawToken)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*RefreshToken), args.Error(1)
+}
+
+func (m *MockRefreshTokensRepo) Revoke(ctx context.Context, id bson.ObjectID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockRefreshTokensRepo) RevokeAllForUser(ctx context.Context, userID bson.ObjectID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
 }
 
 func TestService_SignUp(t *testing.T) {
@@ -101,7 +138,9 @@ func TestService_SignUp(t *testing.T) {
 			repo := new(MockUsersRepo)
 			tt.setup(repo)
 
-			service := NewService(repo, cfg, silentLogger)
+			refreshRepo := new(MockRefreshTokensRepo)
+			refreshRepo.On("Create", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			service := NewService(repo, refreshRepo, cfg, silentLogger)
 			resp, err := service.SignUp(context.Background(), tt.req)
 
 			if tt.wantErr {
@@ -156,14 +195,16 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 			}
 
 			repo := new(MockUsersRepo)
-			service := NewService(repo, cfg, silentLogger)
+			refreshRepo := new(MockRefreshTokensRepo)
+			refreshRepo.On("Create", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			service := NewService(repo, refreshRepo, cfg, silentLogger)
 
 			user := &User{
 				ID:    bson.NewObjectID(),
 				Email: "test@example.com",
 			}
 
-			token, err := service.generateJWT(user)
+			token, err := service.GenerateAccessToken(user)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -186,14 +227,15 @@ func TestService_GenerateJWT_ValidTokenStructure(t *testing.T) {
 	}
 
 	repo := new(MockUsersRepo)
-	service := NewService(repo, cfg, silentLogger)
+	refreshRepo := new(MockRefreshTokensRepo)
+	service := NewService(repo, refreshRepo, cfg, silentLogger)
 
 	user := &User{
 		ID:    bson.NewObjectID(),
 		Email: "test@example.com",
 	}
 
-	token, err := service.generateJWT(user)
+	token, err := service.GenerateAccessToken(user)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -278,7 +320,9 @@ func TestService_SignIn(t *testing.T) {
 			repo := new(MockUsersRepo)
 			tt.setup(repo)
 
-			service := NewService(repo, cfg, silentLogger)
+			refreshRepo := new(MockRefreshTokensRepo)
+			refreshRepo.On("Create", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			service := NewService(repo, refreshRepo, cfg, silentLogger)
 			resp, err := service.SignIn(context.Background(), tt.req)
 
 			if tt.wantErr {

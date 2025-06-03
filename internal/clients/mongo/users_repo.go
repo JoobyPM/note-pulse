@@ -69,3 +69,16 @@ func (r *UsersRepo) FindByEmail(ctx context.Context, email string) (*auth.User, 
 
 	return &user, nil
 }
+
+// FindByID finds a user by their ID
+func (r *UsersRepo) FindByID(ctx context.Context, id bson.ObjectID) (*auth.User, error) {
+	var user auth.User
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+	return &user, nil
+}

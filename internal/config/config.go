@@ -9,18 +9,21 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	AppPort          int    `mapstructure:"APP_PORT"`
-	BcryptCost       int    `mapstructure:"BCRYPT_COST"`
-	SignInRatePerMin int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
-	LogLevel         string `mapstructure:"LOG_LEVEL"`
-	LogFormat        string `mapstructure:"LOG_FORMAT"`
-	MongoURI         string `mapstructure:"MONGO_URI"`
-	MongoDBName      string `mapstructure:"MONGO_DB_NAME"`
-	JWTSecret        string `mapstructure:"JWT_SECRET"`
-	JWTAlgorithm     string `mapstructure:"JWT_ALGORITHM"`
-	JWTExpiryMinutes int    `mapstructure:"JWT_EXPIRY_MINUTES"`
-	WSMaxSessionSec  int    `mapstructure:"WS_MAX_SESSION_SEC"`
-	WSOutboxBuffer   int    `mapstructure:"WS_OUTBOX_BUFFER"`
+	AppPort            int    `mapstructure:"APP_PORT"`
+	BcryptCost         int    `mapstructure:"BCRYPT_COST"`
+	SignInRatePerMin   int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
+	LogLevel           string `mapstructure:"LOG_LEVEL"`
+	LogFormat          string `mapstructure:"LOG_FORMAT"`
+	MongoURI           string `mapstructure:"MONGO_URI"`
+	MongoDBName        string `mapstructure:"MONGO_DB_NAME"`
+	JWTSecret          string `mapstructure:"JWT_SECRET"`
+	JWTAlgorithm       string `mapstructure:"JWT_ALGORITHM"`
+	JWTExpiryMinutes   int    `mapstructure:"JWT_EXPIRY_MINUTES"`
+	WSMaxSessionSec    int    `mapstructure:"WS_MAX_SESSION_SEC"`
+	AccessTokenMinutes int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
+	RefreshTokenDays   int    `mapstructure:"REFRESH_TOKEN_DAYS"`
+	RefreshTokenRotate bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
+	WSOutboxBuffer     int    `mapstructure:"WS_OUTBOX_BUFFER"`
 }
 
 var (
@@ -60,6 +63,9 @@ func Load() (Config, error) {
 	v.SetDefault("JWT_ALGORITHM", "HS256")
 	v.SetDefault("JWT_EXPIRY_MINUTES", 60)
 	v.SetDefault("WS_MAX_SESSION_SEC", 900)
+	v.SetDefault("ACCESS_TOKEN_MINUTES", 15)
+	v.SetDefault("REFRESH_TOKEN_DAYS", 30)
+	v.SetDefault("REFRESH_TOKEN_ROTATE", true)
 	v.SetDefault("WS_OUTBOX_BUFFER", 256) // WebSocket channel buffer size
 
 	// Configure Viper to read from .env file (if present)
@@ -137,6 +143,12 @@ func (c Config) Validate() error {
 	}
 	if c.WSOutboxBuffer <= 0 {
 		return errors.New("WS_OUTBOX_BUFFER must be greater than 0")
+	}
+	if c.AccessTokenMinutes <= 0 {
+		return errors.New("ACCESS_TOKEN_MINUTES must be greater than 0")
+	}
+	if c.RefreshTokenDays <= 0 {
+		return errors.New("REFRESH_TOKEN_DAYS must be greater than 0")
 	}
 	// Validate JWT algorithm
 	switch c.JWTAlgorithm {

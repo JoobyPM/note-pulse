@@ -130,11 +130,14 @@ func setupRouter(cfg config.Config) *fiber.App {
 	authGrp := v1.Group("/auth")
 
 	usersRepo := mongo.NewUsersRepo(mongo.DB())
-	authSvc := authServices.NewService(usersRepo, cfg, logger.L())
+	refreshTokensRepo := mongo.NewRefreshTokensRepo(mongo.DB())
+	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := authHandlers.NewHandlers(authSvc, v)
 
 	authGrp.Post("/sign-up", authHandlers.SignUp)
 	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)
+	authGrp.Post("/refresh", limiterMW, authHandlers.Refresh)
+	authGrp.Post("/sign-out", jwtMiddleware, authHandlers.SignOut)
 
 	// Notes routes
 	notesRepo, err := mongo.NewNotesRepo(mongo.DB())

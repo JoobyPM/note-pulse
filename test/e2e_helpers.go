@@ -237,7 +237,7 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 			_ = cmd.Process.Kill()
 			<-done
 		}
-		
+
 		// Dump stderr on cleanup if there's content
 		if stderrBuf.Len() > 0 {
 			t.Logf("Server stderr output (%d bytes):\n%s", stderrBuf.Len(), stderrBuf.String())
