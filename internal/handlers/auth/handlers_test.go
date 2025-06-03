@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/internal/config"
 	"note-pulse/internal/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
@@ -51,8 +52,27 @@ func (m *MockAuthService) SignIn(ctx context.Context, req auth.SignInRequest) (*
 	return args.Get(0).(*auth.AuthResponse), args.Error(1)
 }
 
+func (m *MockAuthService) Refresh(ctx context.Context, rawRefreshToken string) (*auth.AuthResponse, error) {
+	args := m.Called(ctx, rawRefreshToken)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.AuthResponse), args.Error(1)
+}
+
+func (m *MockAuthService) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshToken string) error {
+	args := m.Called(ctx, userID, rawRefreshToken)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
 func setupTestApp(authService *MockAuthService) *fiber.App {
-	if err := logger.InitTest(); err != nil {
+	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
+	if _, err := logger.Init(cfg); err != nil {
 		panic(err)
 	}
 
@@ -86,7 +106,8 @@ func setupTestApp(authService *MockAuthService) *fiber.App {
 }
 
 func setupTestAppWithJWT(authService *MockAuthService) *fiber.App {
-	if err := logger.InitTest(); err != nil {
+	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
+	if _, err := logger.Init(cfg); err != nil {
 		panic(err)
 	}
 

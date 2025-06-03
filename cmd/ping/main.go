@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -43,6 +44,22 @@ func main() {
 
 	url := fmt.Sprintf(LocalhostURLFormat, cfg.AppPort)
 
+	// Create HTTP client with proper timeouts to prevent connection leaks
+	client := &http.Client{
+		Timeout: 1 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   500 * time.Millisecond,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:          2,
+			MaxIdleConnsPerHost:   1,
+		},
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -52,7 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		logg.Error("request failed", "err", err)
 		os.Exit(1)
