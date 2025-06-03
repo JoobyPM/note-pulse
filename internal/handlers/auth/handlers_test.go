@@ -65,6 +65,11 @@ func (m *MockAuthService) SignOut(ctx context.Context, userID bson.ObjectID, raw
 	return args.Error(0)
 }
 
+func (m *MockAuthService) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
 func setupTestApp(authService *MockAuthService) *fiber.App {
 	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
 	if _, err := logger.Init(cfg); err != nil {

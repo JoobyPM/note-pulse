@@ -25,6 +25,10 @@ type Service struct {
 	log              *slog.Logger
 }
 
+// ErrInvalidRefreshToken is returned whenever the caller supplies a refresh
+// token that is expired, revoked or does not belong to the user.
+var ErrInvalidRefreshToken = errors.New("invalid refresh token")
+
 // NewService creates a new auth service
 func NewService(usersRepo UsersRepo, refreshTokenRepo RefreshTokensRepo, cfg config.Config, log *slog.Logger) *Service {
 	return &Service{
@@ -245,13 +249,55 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 		}
 		newRefreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 
-		if err := s.refreshTokenRepo.Create(ctx, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
-			s.log.Error("failed to store new refresh token", "error", err)
-			return nil, errors.New("failed to refresh tokens")
-		}
+		// Check if MongoDB supports transactions
+		client := s.refreshTokenRepo.Client()
+		supportsTransactions := s.supportsTransactions(ctx, client)
 
-		if err := s.refreshTokenRepo.Revoke(ctx, refreshToken.ID); err != nil {
-			s.log.Error("failed to revoke old refresh token", "error", err, "token_id", refreshToken.ID.Hex())
+		if !supportsTransactions {
+			// Standalone mode - best-effort two-step without transaction
+			s.log.Info("using fallback token rotation for standalone MongoDB")
+
+			// Create new token first
+			if err := s.refreshTokenRepo.Create(ctx, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
+				s.log.Error("failed to store new refresh token in fallback mode", "error", err)
+				return nil, errors.New("failed to refresh tokens")
+			}
+
+			// Then revoke old token - log warning on error, don't fail request
+			if err := s.refreshTokenRepo.Revoke(ctx, refreshToken.ID); err != nil {
+				s.log.Warn("failed to revoke old refresh token in fallback mode, continuing", "error", err, "token_id", refreshToken.ID.Hex())
+			}
+
+			s.log.Debug("fallback refresh token rotation completed", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
+		} else {
+			// Use MongoDB transaction to ensure atomicity (create new -> revoke old)
+			sess, err := client.StartSession()
+			if err != nil {
+				s.log.Error("failed to start MongoDB session", "error", err)
+				return nil, errors.New("failed to refresh tokens")
+			}
+			defer sess.EndSession(ctx)
+
+			_, err = sess.WithTransaction(ctx, func(sc context.Context) (any, error) {
+				if err := s.refreshTokenRepo.Create(sc, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
+					s.log.Error("failed to store new refresh token in transaction", "error", err)
+					return nil, err
+				}
+
+				// Second: Revoke the old refresh token (race-safe)
+				if err := s.refreshTokenRepo.Revoke(sc, refreshToken.ID); err != nil {
+					s.log.Error("failed to revoke old refresh token in transaction", "error", err, "token_id", refreshToken.ID.Hex())
+					return nil, err
+				}
+
+				s.log.Debug("refresh token rotation completed successfully", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
+				return nil, nil // commit transaction
+			})
+
+			if err != nil {
+				s.log.Error("refresh token rotation transaction failed", "error", err)
+				return nil, errors.New("failed to refresh tokens")
+			}
 		}
 	}
 
@@ -267,8 +313,8 @@ func (s *Service) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshT
 	refreshToken, err := s.refreshTokenRepo.FindActive(ctx, rawRefreshToken)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			s.log.Info("refresh token not found for sign out")
-			return nil
+			// Already revoked / never existed
+			return ErrInvalidRefreshToken
 		}
 		s.log.Error("failed to find refresh token for sign out", "error", err)
 		return errors.New("failed to sign out")
@@ -276,7 +322,7 @@ func (s *Service) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshT
 
 	if refreshToken.UserID != userID {
 		s.log.Warn("refresh token does not belong to user", "token_user_id", refreshToken.UserID.Hex(), "request_user_id", userID.Hex())
-		return errors.New("invalid refresh token")
+		return ErrInvalidRefreshToken
 	}
 
 	if err := s.refreshTokenRepo.Revoke(ctx, refreshToken.ID); err != nil {
@@ -297,6 +343,23 @@ func (s *Service) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
 
 	s.log.Info("user signed out from all devices", "user_id", userID.Hex())
 	return nil
+}
+
+func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	var hello bson.M
+	err := client.Database("admin").RunCommand(probeCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
+	if err != nil {
+		s.log.Warn("failed to probe transaction support, assuming standalone", "err", err)
+		return false
+	}
+
+	// stand-alone MongoDB has no replica set name
+	supportsTransactions := hello["setName"] != nil
+	s.log.Debug("checked MongoDB transaction support", "supports_transactions", supportsTransactions)
+	return supportsTransactions
 }
 
 func maskDuplicateError() error {

@@ -247,8 +247,9 @@ func (h *WebSocketHandlers) validateJWT(tokenString string) (bson.ObjectID, stri
 	return userID, userEmail, nil
 }
 
-// LogWSConnections is a middleware that logs WebSocket connections
-func LogWSConnections() fiber.Handler {
+// LogWSConnections logs every WebSocket upgrade attempt.
+// It verifies the token with jwtSecret so the logged user_id can't be spoofed.
+func LogWSConnections(jwtSecret string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 
@@ -256,10 +257,15 @@ func LogWSConnections() fiber.Handler {
 			token := c.Query("token")
 			var userInfo string
 			if token != "" {
-				// Try to extract user info from token for logging
-				if parsed, err := jwt.Parse(token, func(token *jwt.Token) (any, error) {
-					return nil, nil // We don't validate here, just parse for logging
-				}); err == nil {
+				// Parse *and* verify the signature so the log can't be spoofed
+				parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
+					// Accept only the configured algorithm, then hand over the secret
+					if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+					}
+					return []byte(jwtSecret), nil
+				})
+				if err == nil && parsed.Valid {
 					if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
 						if userID, exists := claims["user_id"].(string); exists {
 							userInfo = userID

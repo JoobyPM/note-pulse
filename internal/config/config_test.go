@@ -25,7 +25,6 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.Equal(t, "notepulse", cfg.MongoDBName)
 	assert.Equal(t, "this-is-a-default-jwt-secret-key-with-32-plus-characters", cfg.JWTSecret)
 	assert.Equal(t, "HS256", cfg.JWTAlgorithm)
-	assert.Equal(t, 60, cfg.JWTExpiryMinutes)
 	assert.Equal(t, 900, cfg.WSMaxSessionSec)
 	assert.Equal(t, 256, cfg.WSOutboxBuffer)
 }
@@ -51,7 +50,6 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 	assert.Equal(t, "mongodb://mongo:27017", cfg.MongoURI)
 	assert.Equal(t, "notepulse", cfg.MongoDBName)
 	assert.Equal(t, "this-is-a-default-jwt-secret-key-with-32-plus-characters", cfg.JWTSecret)
-	assert.Equal(t, 60, cfg.JWTExpiryMinutes)
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -74,7 +72,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -95,7 +92,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -117,7 +113,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -139,7 +134,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -161,7 +155,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -183,7 +176,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -205,7 +197,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -227,7 +218,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "short",
 				JWTAlgorithm:       "HS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -249,7 +239,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "RS256",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -270,7 +259,6 @@ func TestConfig_Validate(t *testing.T) {
 				MongoDBName:        "test",
 				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
 				JWTAlgorithm:       "INVALID",
-				JWTExpiryMinutes:   60,
 				AccessTokenMinutes: 15,
 				RefreshTokenDays:   30,
 				RefreshTokenRotate: true,
@@ -323,7 +311,6 @@ func clearConfigEnvVars(t *testing.T) {
 		"MONGO_DB_NAME",
 		"JWT_SECRET",
 		"JWT_ALGORITHM",
-		"JWT_EXPIRY_MINUTES",
 		"WS_MAX_SESSION_SEC",
 		"WS_OUTBOX_BUFFER",
 	}

@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ func TestRefreshTokensRepo_Create(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -38,7 +39,7 @@ func TestRefreshTokensRepo_FindActive(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -60,7 +61,7 @@ func TestRefreshTokensRepo_FindActive_Expired(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -78,7 +79,7 @@ func TestRefreshTokensRepo_Revoke(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -105,7 +106,7 @@ func TestRefreshTokensRepo_RevokeAllForUser(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -142,7 +143,7 @@ func TestRefreshTokensRepo_FindActive_MultipleTokens(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db)
+	repo := NewRefreshTokensRepo(db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -166,4 +167,51 @@ func TestRefreshTokensRepo_FindActive_MultipleTokens(t *testing.T) {
 	assert.Equal(t, userID, foundToken2.UserID)
 
 	assert.NotEqual(t, foundToken1.ID, foundToken2.ID, "should have different IDs")
+}
+
+// TestRefreshTokensRepo_Create_Duplicate tests that concurrent creation of the same token
+// is handled gracefully via duplicate key error handling
+func TestRefreshTokensRepo_Create_Duplicate(t *testing.T) {
+	_, db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRefreshTokensRepo(db, 12)
+	ctx := context.Background()
+
+	userID := bson.NewObjectID()
+	rawToken := "same-token-for-both-goroutines"
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+
+	errors := make(chan error, 2)
+	var wg sync.WaitGroup
+
+	// Launch two goroutines that try to create the same token simultaneously
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		err := repo.Create(ctx, userID, rawToken, expiresAt)
+		errors <- err
+	}()
+
+	go func() {
+		defer wg.Done()
+		err := repo.Create(ctx, userID, rawToken, expiresAt)
+		errors <- err
+	}()
+
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		require.NoError(t, err, "both create operations should succeed")
+	}
+
+	token, err := repo.FindActive(ctx, rawToken)
+	require.NoError(t, err, "should find the created token")
+	assert.Equal(t, userID, token.UserID)
+
+	// Count documents to ensure only one was created
+	count, err := db.Collection("refresh_tokens").CountDocuments(ctx, bson.M{"user_id": userID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count, "exactly one token should exist")
 }

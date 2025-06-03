@@ -68,7 +68,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	defer profileResp.Body.Close()
 	require.Equal(t, http.StatusOK, profileResp.StatusCode, "should get profile")
 
-	var profileResult map[string]interface{}
+	var profileResult map[string]any
 	err = json.NewDecoder(profileResp.Body).Decode(&profileResult)
 	require.NoError(t, err, "should decode profile response")
 	assert.Equal(t, email, profileResult["email"], "should have email")

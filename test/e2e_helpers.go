@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"note-pulse/internal/config"
 )
 
 // limitedWriter wraps an io.Writer and limits the amount of data written
@@ -207,6 +209,14 @@ func SetupTestEnvironment(t *testing.T) *TestEnvironment {
 func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *TestEnvironment {
 	t.Helper()
 	t.Log("Setting up test environment")
+	config.ResetCache()
+	for k, v := range extraEnv {
+		t.Setenv(k, v)
+	}
+
+	t.Cleanup(func() {
+		config.ResetCache() // paranoia: wipe again when test ends
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)

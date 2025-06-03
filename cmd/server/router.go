@@ -130,7 +130,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 	authGrp := v1.Group("/auth")
 
 	usersRepo := mongo.NewUsersRepo(mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(mongo.DB())
+	refreshTokensRepo := mongo.NewRefreshTokensRepo(mongo.DB(), cfg.BcryptCost)
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := authHandlers.NewHandlers(authSvc, v)
 
@@ -138,6 +138,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)
 	authGrp.Post("/refresh", limiterMW, authHandlers.Refresh)
 	authGrp.Post("/sign-out", jwtMiddleware, authHandlers.SignOut)
+	authGrp.Post("/sign-out-all", jwtMiddleware, authHandlers.SignOutAll)
 
 	// Notes routes
 	notesRepo, err := mongo.NewNotesRepo(mongo.DB())
@@ -157,35 +158,13 @@ func setupRouter(cfg config.Config) *fiber.App {
 
 	// WebSocket routes
 	wsHandlers := notesHandlers.NewWebSocketHandlers(hub, cfg.JWTSecret, cfg.WSMaxSessionSec)
-	app.Use("/ws", notesHandlers.LogWSConnections())
+	app.Use("/ws", notesHandlers.LogWSConnections(cfg.JWTSecret))
 	app.Get("/ws/notes/stream", wsHandlers.WSUpgrade, websocket.New(wsHandlers.WSNotesStream))
 
-	// Examples of protected routes (for testing JWT middleware)
-	protected := v1.Group("/protected", jwtMiddleware)
-	protected.Get("/profile", profile)
-
-	// User profile endpoint
+	// User profile endpoint (for testing JWT middleware and for future use)
 	v1.Get("/me", jwtMiddleware, me)
 
 	return app
-}
-
-// @Summary Get user profile
-// @Description Get user profile
-// @Tags protected
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Success 200 {object} map[string]string
-// @Router /protected/profile [get]
-func profile(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(string)
-	userEmail := c.Locals("userEmail").(string)
-	return c.JSON(fiber.Map{
-		"user_id": userID,
-		"email":   userEmail,
-		"message": "This is a protected route",
-	})
 }
 
 // @Summary Get current user

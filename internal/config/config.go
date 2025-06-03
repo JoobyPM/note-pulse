@@ -18,7 +18,6 @@ type Config struct {
 	MongoDBName        string `mapstructure:"MONGO_DB_NAME"`
 	JWTSecret          string `mapstructure:"JWT_SECRET"`
 	JWTAlgorithm       string `mapstructure:"JWT_ALGORITHM"`
-	JWTExpiryMinutes   int    `mapstructure:"JWT_EXPIRY_MINUTES"`
 	WSMaxSessionSec    int    `mapstructure:"WS_MAX_SESSION_SEC"`
 	AccessTokenMinutes int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
 	RefreshTokenDays   int    `mapstructure:"REFRESH_TOKEN_DAYS"`
@@ -61,7 +60,6 @@ func Load() (Config, error) {
 	v.SetDefault("MONGO_DB_NAME", "notepulse")
 	v.SetDefault("JWT_SECRET", "this-is-a-default-jwt-secret-key-with-32-plus-characters")
 	v.SetDefault("JWT_ALGORITHM", "HS256")
-	v.SetDefault("JWT_EXPIRY_MINUTES", 60)
 	v.SetDefault("WS_MAX_SESSION_SEC", 900)
 	v.SetDefault("ACCESS_TOKEN_MINUTES", 15)
 	v.SetDefault("REFRESH_TOKEN_DAYS", 30)
@@ -134,9 +132,6 @@ func (c Config) Validate() error {
 	}
 	if c.JWTAlgorithm == "HS256" && len(c.JWTSecret) < 32 {
 		return errors.New("JWT_SECRET must be at least 32 characters for HS256")
-	}
-	if c.JWTExpiryMinutes <= 0 {
-		return errors.New("JWT_EXPIRY_MINUTES must be greater than 0")
 	}
 	if c.WSMaxSessionSec <= 0 {
 		return errors.New("WS_MAX_SESSION_SEC must be greater than 0")

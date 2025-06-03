@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"note-pulse/internal/handlers/httperr"
 	"note-pulse/internal/logger"
@@ -18,6 +19,7 @@ type AuthService interface {
 	SignIn(ctx context.Context, req auth.SignInRequest) (*auth.AuthResponse, error)
 	Refresh(ctx context.Context, rawRefreshToken string) (*auth.AuthResponse, error)
 	SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshToken string) error
+	SignOutAll(ctx context.Context, userID bson.ObjectID) error
 }
 
 // Handlers contains the auth HTTP handlers
@@ -190,12 +192,52 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 	}
 
 	if err := h.authService.SignOut(c.Context(), userID, req.RefreshToken); err != nil {
+		if errors.Is(err, auth.ErrInvalidRefreshToken) {
+			return httperr.Fail(httperr.ErrUnauthorized)
+		}
 		logger.L().Error("signout service failed", "handler", "SignOut", "userID", userID.Hex(), "error", err)
+		return httperr.Fail(httperr.ErrInternal)
+	}
+
+	return c.JSON(map[string]string{"message": "Successfully signed out"})
+}
+
+// SignOutAll handles user sign out from all devices
+// @Summary Sign out from all devices
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} httperr.E
+// @Failure 500 {object} httperr.E
+// @Router /auth/sign-out-all [post]
+func (h *Handlers) SignOutAll(c *fiber.Ctx) error {
+	// Extract user ID from JWT token context
+	userIDStr := c.Locals("userID")
+	if userIDStr == nil {
+		logger.L().Warn("missing user ID in token context", "handler", "SignOutAll")
+		return httperr.Fail(httperr.E{
+			Status:  401,
+			Message: "User not authenticated",
+		})
+	}
+
+	userID, err := bson.ObjectIDFromHex(userIDStr.(string))
+	if err != nil {
+		logger.L().Warn("invalid user ID format", "handler", "SignOutAll", "userID", userIDStr, "error", err)
+		return httperr.Fail(httperr.E{
+			Status:  400,
+			Message: "Invalid user ID",
+		})
+	}
+
+	if err := h.authService.SignOutAll(c.Context(), userID); err != nil {
+		logger.L().Error("signout all service failed", "handler", "SignOutAll", "userID", userID.Hex(), "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  500,
 			Message: err.Error(),
 		})
 	}
 
-	return c.JSON(map[string]string{"message": "Successfully signed out"})
+	return c.JSON(map[string]string{"message": "Signed out everywhere"})
 }

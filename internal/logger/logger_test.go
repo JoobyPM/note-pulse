@@ -43,13 +43,12 @@ func TestLogger_FormatSelection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Config{
-				AppPort:          8080,
-				LogLevel:         "info",
-				LogFormat:        tt.logFormat,
-				MongoURI:         "mongodb://localhost:27017",
-				MongoDBName:      "test",
-				JWTSecret:        "secret",
-				JWTExpiryMinutes: 60,
+				AppPort:     8080,
+				LogLevel:    "info",
+				LogFormat:   tt.logFormat,
+				MongoURI:    "mongodb://localhost:27017",
+				MongoDBName: "test",
+				JWTSecret:   "secret",
 			}
 
 			var buf bytes.Buffer
@@ -85,13 +84,12 @@ func TestLogger_FormatSelection(t *testing.T) {
 
 func TestLogger_LevelFiltering(t *testing.T) {
 	cfg := config.Config{
-		AppPort:          8080,
-		LogLevel:         "info",
-		LogFormat:        "json",
-		MongoURI:         "mongodb://localhost:27017",
-		MongoDBName:      "test",
-		JWTSecret:        "secret",
-		JWTExpiryMinutes: 60,
+		AppPort:     8080,
+		LogLevel:    "info",
+		LogFormat:   "json",
+		MongoURI:    "mongodb://localhost:27017",
+		MongoDBName: "test",
+		JWTSecret:   "secret",
 	}
 
 	var buf bytes.Buffer
@@ -115,13 +113,12 @@ func TestLogger_LevelFiltering(t *testing.T) {
 
 func TestLogger_Idempotency(t *testing.T) {
 	cfg := config.Config{
-		AppPort:          8080,
-		LogLevel:         "info",
-		LogFormat:        "json",
-		MongoURI:         "mongodb://localhost:27017",
-		MongoDBName:      "test",
-		JWTSecret:        "secret",
-		JWTExpiryMinutes: 60,
+		AppPort:     8080,
+		LogLevel:    "info",
+		LogFormat:   "json",
+		MongoURI:    "mongodb://localhost:27017",
+		MongoDBName: "test",
+		JWTSecret:   "secret",
 	}
 
 	log1, err1 := Init(cfg)
@@ -135,13 +132,12 @@ func TestLogger_Idempotency(t *testing.T) {
 	assert.Same(t, log1, log2, "subsequent Init calls should return the same logger instance")
 
 	differentCfg := config.Config{
-		AppPort:          9090,
-		LogLevel:         "debug",
-		LogFormat:        "text",
-		MongoURI:         "mongodb://localhost:27017",
-		MongoDBName:      "test",
-		JWTSecret:        "secret",
-		JWTExpiryMinutes: 60,
+		AppPort:     9090,
+		LogLevel:    "debug",
+		LogFormat:   "text",
+		MongoURI:    "mongodb://localhost:27017",
+		MongoDBName: "test",
+		JWTSecret:   "secret",
 	}
 
 	log3, err3 := Init(differentCfg)
@@ -153,13 +149,12 @@ func TestLogger_Idempotency(t *testing.T) {
 
 func TestLogger_Concurrency(t *testing.T) {
 	cfg := config.Config{
-		AppPort:          8080,
-		LogLevel:         "info",
-		LogFormat:        "json",
-		MongoURI:         "mongodb://localhost:27017",
-		MongoDBName:      "test",
-		JWTSecret:        "secret",
-		JWTExpiryMinutes: 60,
+		AppPort:     8080,
+		LogLevel:    "info",
+		LogFormat:   "json",
+		MongoURI:    "mongodb://localhost:27017",
+		MongoDBName: "test",
+		JWTSecret:   "secret",
 	}
 
 	const numGoroutines = 10
@@ -192,13 +187,12 @@ func TestLogger_Concurrency(t *testing.T) {
 
 func TestLogger_L(t *testing.T) {
 	cfg := config.Config{
-		AppPort:          8080,
-		LogLevel:         "info",
-		LogFormat:        "json",
-		MongoURI:         "mongodb://localhost:27017",
-		MongoDBName:      "test",
-		JWTSecret:        "secret",
-		JWTExpiryMinutes: 60,
+		AppPort:     8080,
+		LogLevel:    "info",
+		LogFormat:   "json",
+		MongoURI:    "mongodb://localhost:27017",
+		MongoDBName: "test",
+		JWTSecret:   "secret",
 	}
 
 	log1, err := Init(cfg)
