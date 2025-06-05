@@ -1,0 +1,38 @@
+services:
+  ###########################################################################
+  # Lift the sign-in rate-limit during load tests
+  ###########################################################################
+  server:
+    environment:
+      SIGNIN_RATE_PER_MIN: 1000000
+    profiles: ["loadtest"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  ###########################################################################
+  # k6 runner (official image)
+  ###########################################################################
+  k6:
+    image: grafana/k6:1.0.0
+    container_name: note-pulse-k6
+    profiles: ["loadtest"]
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "5665:5665" # k6 dashboard
+    volumes:
+      - ./loadtest/scripts:/scripts:ro
+    environment:
+      BASE_URL: http://server:8080/api/v1 # API inside the compose network
+      K6_SCRIPT: auth_flow.js # default script; override from CLI
+    entrypoint: >
+      sh -c '
+        SCRIPT="$${K6_SCRIPT:-auth_flow.js}";
+        echo "▶ running k6 script: $SCRIPT";
+        mkdir -p /reports;
+        K6_WEB_DASHBOARD=true k6 run "/scripts/$${SCRIPT}"
+      '

@@ -24,6 +24,10 @@ type Config struct {
 	RefreshTokenRotate  bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
 	WSOutboxBuffer      int    `mapstructure:"WS_OUTBOX_BUFFER"`
 	RouteMetricsEnabled bool   `mapstructure:"ROUTE_METRICS_ENABLED"`
+	PprofEnabled        bool   `mapstructure:"PPROF_ENABLED"`
+	PyroscopeEnabled    bool   `mapstructure:"PYROSCOPE_ENABLED"`
+	PyroscopeServerAddr string `mapstructure:"PYROSCOPE_SERVER_ADDR"`
+	PyroscopeAppName    string `mapstructure:"PYROSCOPE_APP_NAME"`
 }
 
 var (
@@ -53,7 +57,7 @@ func Load() (Config, error) {
 
 	// Set defaults
 	v.SetDefault("APP_PORT", 8080)
-	v.SetDefault("BCRYPT_COST", 12)
+	v.SetDefault("BCRYPT_COST", 8)
 	v.SetDefault("SIGNIN_RATE_PER_MIN", 5)
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "json")
@@ -67,6 +71,10 @@ func Load() (Config, error) {
 	v.SetDefault("REFRESH_TOKEN_ROTATE", true)
 	v.SetDefault("WS_OUTBOX_BUFFER", 256) // WebSocket channel buffer size
 	v.SetDefault("ROUTE_METRICS_ENABLED", true)
+	v.SetDefault("PPROF_ENABLED", false)
+	v.SetDefault("PYROSCOPE_ENABLED", false)
+	v.SetDefault("PYROSCOPE_SERVER_ADDR", "http://pyroscope:4040")
+	v.SetDefault("PYROSCOPE_APP_NAME", "notepulse-server")
 
 	// Configure Viper to read from .env file (if present)
 	v.SetConfigName(".env")
@@ -111,8 +119,8 @@ func (c Config) Validate() error {
 	if c.AppPort <= 0 {
 		return errors.New("APP_PORT must be greater than 0")
 	}
-	if c.BcryptCost < 10 || c.BcryptCost > 16 {
-		return errors.New("BCRYPT_COST must be between 10 and 16")
+	if c.BcryptCost < 8 || c.BcryptCost > 16 {
+		return errors.New("BCRYPT_COST must be between 8 and 16")
 	}
 	if c.SignInRatePerMin < 1 {
 		return errors.New("SIGNIN_RATE_PER_MIN must be greater than or equal to 1")

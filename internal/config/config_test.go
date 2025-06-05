@@ -17,7 +17,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.AppPort)
-	assert.Equal(t, 12, cfg.BcryptCost)
+	assert.Equal(t, 8, cfg.BcryptCost)
 	assert.Equal(t, 5, cfg.SignInRatePerMin)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
@@ -147,7 +147,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "bcrypt cost too low",
 			config: Config{
 				AppPort:            8080,
-				BcryptCost:         9,
+				BcryptCost:         7,
 				SignInRatePerMin:   5,
 				LogLevel:           "info",
 				LogFormat:          "json",
@@ -162,7 +162,7 @@ func TestConfig_Validate(t *testing.T) {
 				WSOutboxBuffer:     256,
 			},
 			wantErr: true,
-			errMsg:  "BCRYPT_COST must be between 10 and 16",
+			errMsg:  "BCRYPT_COST must be between 8 and 16",
 		},
 		{
 			name: "bcrypt cost too high",
@@ -183,7 +183,7 @@ func TestConfig_Validate(t *testing.T) {
 				WSOutboxBuffer:     256,
 			},
 			wantErr: true,
-			errMsg:  "BCRYPT_COST must be between 10 and 16",
+			errMsg:  "BCRYPT_COST must be between 8 and 16",
 		},
 		{
 			name: "signin rate too low",

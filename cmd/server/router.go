@@ -66,44 +66,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 	}))
 
 	if cfg.RouteMetricsEnabled {
-		httpRequestDuration := prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "http_request_duration_seconds",
-				Help:    "Duration of HTTP requests in seconds",
-				Buckets: prometheus.DefBuckets,
-			},
-			[]string{"method", "path", "status"},
-		)
-		httpRequestsTotal := prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "http_requests_total",
-				Help: "Total number of HTTP requests",
-			},
-			[]string{"method", "path", "status"},
-		)
-
-		prometheus.MustRegister(httpRequestDuration, httpRequestsTotal)
-
-		app.Use(func(c *fiber.Ctx) error {
-			start := time.Now()
-			err := c.Next()
-			duration := time.Since(start).Seconds()
-
-			method := c.Method()
-			path := c.Route().Path
-			status := c.Response().StatusCode()
-
-			statusStr := strconv.Itoa(status)
-			httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
-			httpRequestsTotal.WithLabelValues(method, path, statusStr).Inc()
-
-			return err
-		})
-
-		app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
-		logger.L().Info("route metrics enabled")
-	} else {
-		logger.L().Info("route metrics disabled by config")
+		registerPrometheus(app)
 	}
 
 	// Health check endpoint, outside versioned API to appease scanners and to avoid logging
@@ -227,4 +190,39 @@ func me(c *fiber.Ctx) error {
 		"uid":   userID,
 		"email": userEmail,
 	})
+}
+
+func registerPrometheus(app *fiber.App) {
+	httpRequestDuration := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path", "status"},
+	)
+	httpRequestsTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+	prometheus.MustRegister(httpRequestDuration, httpRequestsTotal)
+
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+		err := c.Next()
+		duration := time.Since(start).Seconds()
+		method := c.Method()
+		path := c.Route().Path
+		status := c.Response().StatusCode()
+		statusStr := strconv.Itoa(status)
+		httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
+		httpRequestsTotal.WithLabelValues(method, path, statusStr).Inc()
+		return err
+	})
+
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+	logger.L().Info("Prometheus metrics enabled")
 }
