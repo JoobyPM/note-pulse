@@ -1,0 +1,96 @@
+# .github/workflows/ci.yml
+#
+# CI pipeline for Note-Pulse
+# ─────────────────────────
+# 1. Lint + unit + e2e tests (Testcontainers, no-Ryuk)
+# 2. Build distroless OCI image
+# 3. Bring up docker-compose.ci and run a smoke check
+# --------------------------------------------------------------------
+
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # speed-ups for Docker builds
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  # Propagate credentials to every step
+  MONGO_INITDB_ROOT_PASSWORD: ${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}
+  JWT_SECRET:                 ${{ secrets.JWT_SECRET }}
+  # Testcontainers optimisation - disable the extra Ryuk side-car
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
+jobs:
+  # ───────────────────────────── tests ──────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.24.2
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.2"
+          cache: true
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          # docker-compose-plugin is pre-installed but keep idempotent
+          sudo apt-get install -yqq yamllint
+
+      - name: Install project tools (golangci-lint, swag, …)
+        run: make install-tools
+
+      - name: Format, vet, lint, unit tests
+        run: make check
+
+      - name: End-to-end tests (Testcontainers)
+        run: make e2e
+
+  # ───────────────────── docker build + smoke test ───────────────────
+  docker-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build server image (distroless)
+        run: docker build -t notepulse-server:ci .
+
+      - name: Create .env.ci for compose
+        run: |
+          cat <<EOF > .env.ci
+          JWT_SECRET=${JWT_SECRET}
+          MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+          EOF
+
+      - name: Launch CI compose stack
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            --env-file .env.ci \
+            up -d
+          # wait (≤60 s) for the health-check to pass
+          for i in {1..20}; do
+            if docker compose -f docker-compose.ci.yml \
+              exec -T server /ping >/dev/null 2>&1; then exit 0; fi
+            sleep 3
+          done
+          echo "❌ server never became healthy" && docker compose -f docker-compose.ci.yml logs --tail=100 && exit 1
+
+      - name: Smoke request to /healthz
+        run: curl --fail --silent http://localhost:8080/healthz
+
+      - name: Shutdown compose (always)
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans
+    

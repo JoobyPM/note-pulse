@@ -4,7 +4,7 @@ x-server-core: &server-core
     dockerfile: Dockerfile
   image: notepulse-server:latest
   env_file:
-    - .env
+    - ${ENV_FILE:-.env}
   depends_on:
     mongo:
       condition: service_healthy
@@ -21,7 +21,7 @@ services:
     image: mongo:8.0
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: notepulse
     volumes:
       - mongo-data:/data/db

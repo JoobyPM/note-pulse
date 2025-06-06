@@ -73,6 +73,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 
 	existing, err := s.usersRepo.FindByEmail(ctx, email)
 	if err == nil && existing != nil {
+		s.log.Warn("user already exists", "email", email)
 		return nil, maskDuplicateError()
 	}
 
@@ -92,6 +93,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 
 	if err := s.usersRepo.Create(ctx, user); err != nil {
 		if errors.Is(err, ErrDuplicate) {
+			s.log.Warn("user already exists", "email", email)
 			return nil, maskDuplicateError()
 		}
 		return nil, errors.New("failed to create user")

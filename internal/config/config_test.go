@@ -13,6 +13,14 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
+	// Set DEV_MODE=true to bypass JWT_SECRET requirement for tests
+	err := os.Setenv("DEV_MODE", "true")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("DEV_MODE")
+		require.NoError(t, err)
+	}()
+
 	cfg, err := Load()
 	require.NoError(t, err)
 
@@ -23,8 +31,9 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.Equal(t, "mongodb://mongo:27017", cfg.MongoURI)
 	assert.Equal(t, "notepulse", cfg.MongoDBName)
-	assert.Equal(t, "this-is-a-default-jwt-secret-key-with-32-plus-characters", cfg.JWTSecret)
+	assert.Equal(t, "", cfg.JWTSecret) // No default JWT secret anymore
 	assert.Equal(t, "HS256", cfg.JWTAlgorithm)
+	assert.Equal(t, true, cfg.DevMode)
 	assert.Equal(t, 900, cfg.WSMaxSessionSec)
 	assert.Equal(t, 256, cfg.WSOutboxBuffer)
 	assert.Equal(t, true, cfg.RequestLoggingEnabled)
@@ -42,6 +51,14 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	// Set DEV_MODE=true to bypass JWT_SECRET requirement for tests
+	err = os.Setenv("DEV_MODE", "true")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("DEV_MODE")
+		require.NoError(t, err)
+	}()
+
 	cfg, err := Load()
 	require.NoError(t, err)
 
@@ -50,7 +67,8 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.Equal(t, "mongodb://mongo:27017", cfg.MongoURI)
 	assert.Equal(t, "notepulse", cfg.MongoDBName)
-	assert.Equal(t, "this-is-a-default-jwt-secret-key-with-32-plus-characters", cfg.JWTSecret)
+	assert.Equal(t, "", cfg.JWTSecret) // No default JWT secret anymore
+	assert.Equal(t, true, cfg.DevMode)
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -182,9 +200,10 @@ func TestConfig_Validate(t *testing.T) {
 				RefreshTokenRotate: true,
 				WSMaxSessionSec:    900,
 				WSOutboxBuffer:     256,
+				DevMode:            false,
 			},
 			wantErr: true,
-			errMsg:  "JWT_SECRET cannot be empty",
+			errMsg:  "JWT_SECRET is required (see .env.template)",
 		},
 		{
 			name: "bcrypt cost too low",
@@ -266,9 +285,10 @@ func TestConfig_Validate(t *testing.T) {
 				RefreshTokenRotate: true,
 				WSMaxSessionSec:    900,
 				WSOutboxBuffer:     256,
+				DevMode:            false,
 			},
 			wantErr: true,
-			errMsg:  "JWT_SECRET must be at least 32 characters for HS256",
+			errMsg:  "JWT_SECRET must be ≥32 chars",
 		},
 		{
 			name: "invalid JWT algorithm",
@@ -313,6 +333,14 @@ func TestConfig_Caching(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
+	// Set DEV_MODE=true to bypass JWT_SECRET requirement for tests
+	err := os.Setenv("DEV_MODE", "true")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("DEV_MODE")
+		require.NoError(t, err)
+	}()
+
 	cfg1, err := Load()
 	require.NoError(t, err)
 
@@ -332,6 +360,14 @@ func TestConfig_RequestLoggingDisabled(t *testing.T) {
 	require.NoError(t, err)
 	defer func() {
 		err := os.Unsetenv("REQUEST_LOGGING_ENABLED")
+		require.NoError(t, err)
+	}()
+
+	// Set DEV_MODE=true to bypass JWT_SECRET requirement for tests
+	err = os.Setenv("DEV_MODE", "true")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("DEV_MODE")
 		require.NoError(t, err)
 	}()
 

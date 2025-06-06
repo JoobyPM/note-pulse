@@ -145,7 +145,7 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	cmd.Env = append(os.Environ(), envVars...)
+	cmd.Env = append(envVars, os.Environ()...)
 	cmd.Stdout = devNull // no extra goroutines, no console spam
 	cmd.Stderr = limitedStderr
 
