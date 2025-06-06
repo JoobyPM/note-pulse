@@ -79,7 +79,7 @@ func (h *Hub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*Subscriber, 
 
 	connInfo := ConnInfo{
 		ID:          connULID,
-		ConnectedAt: time.Now(),
+		ConnectedAt: time.Now().UTC(),
 		Subscriber:  sub,
 	}
 

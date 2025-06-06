@@ -159,9 +159,9 @@ func waitHealthy(baseURL string, timeout time.Duration) error {
 	healthURL := fmt.Sprintf("%s/healthz", baseURL)
 	client := &http.Client{Timeout: 2 * time.Second}
 
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().UTC().Add(timeout)
 	for {
-		if time.Now().After(deadline) {
+		if time.Now().UTC().After(deadline) {
 			return fmt.Errorf("server never responded on %s", healthURL)
 		}
 

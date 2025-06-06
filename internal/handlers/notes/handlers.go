@@ -93,7 +93,7 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 	if err != nil {
 		logger.L().Error("create note service failed", "handler", "Create", "userID", userID.Hex(), "error", err)
 		return httperr.Fail(httperr.E{
-			Status:  400,
+			Status:  500,
 			Message: err.Error(),
 		})
 	}
@@ -137,7 +137,7 @@ func (h *Handlers) List(c *fiber.Ctx) error {
 	if err != nil {
 		logger.L().Error("list notes service failed", "handler", "List", "userID", userID.Hex(), "error", err)
 		return httperr.Fail(httperr.E{
-			Status:  400,
+			Status:  500,
 			Message: err.Error(),
 		})
 	}
@@ -206,7 +206,7 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 		}
 		logger.L().Error("update note service failed", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
 		return httperr.Fail(httperr.E{
-			Status:  400,
+			Status:  500,
 			Message: err.Error(),
 		})
 	}
@@ -260,7 +260,7 @@ func (h *Handlers) Delete(c *fiber.Ctx) error {
 		}
 		logger.L().Error("delete note service failed", "handler", "Delete", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
 		return httperr.Fail(httperr.E{
-			Status:  400,
+			Status:  500,
 			Message: err.Error(),
 		})
 	}

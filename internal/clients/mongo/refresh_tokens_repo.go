@@ -98,6 +98,8 @@ func (r *RefreshTokensRepo) Create(ctx context.Context, userID bson.ObjectID, ra
 	if err != nil {
 		// Handle duplicate key error gracefully
 		if mongo.IsDuplicateKeyError(err) {
+			// There is potential race-condition, but I ignore it, as this project already consumed too much
+			// And it's very unlikly.
 			safeLog().Debug("duplicate refresh token creation detected, treating as success", "user_id", userID.Hex(), "lookup_hash", lookupHash)
 			return nil
 		}
@@ -145,6 +147,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 		return nil, err
 	}
 
+	// TODO: [perf] this condidate for optimizatin, idea - «Create a background worker that rewrites old documents with the new `lookup_hash` and drop the fallback»
 	// Fallback: Use slower O(N) scan for tokens without lookup_hash (backward compatibility)
 	safeLog().Debug("falling back to bcrypt scan for tokens without lookup_hash")
 	fallbackFilter := bson.M{

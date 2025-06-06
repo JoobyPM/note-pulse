@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -157,6 +158,9 @@ func (c Config) Validate() error {
 	if c.RefreshTokenDays <= 0 {
 		return errors.New("REFRESH_TOKEN_DAYS must be greater than 0")
 	}
+
+	//Normalize
+	c.JWTAlgorithm = strings.ToUpper(c.JWTAlgorithm)
 	// Validate JWT algorithm
 	switch c.JWTAlgorithm {
 	case "HS256":

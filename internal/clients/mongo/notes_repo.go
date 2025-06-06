@@ -112,7 +112,7 @@ func (r *NotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, pa
 
 	update := bson.M{
 		"$set": bson.M{
-			"updated_at": time.Now(),
+			"updated_at": time.Now().UTC(),
 		},
 	}
 

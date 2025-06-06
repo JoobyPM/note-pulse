@@ -20,6 +20,8 @@ CGO_ENABLED="${CGO_ENABLED:-0}"
 GOOS="${GOOS:-linux}"
 GOARCH="${GOARCH:-}"
 
+echo "Target OS - $GOOS"
+echo "Targte arch - $GOARCH"
 echo "Building $TARGET -> $OUTPUT"
 echo "Version: $TAG"
 echo "Commit: $REV"

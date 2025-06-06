@@ -97,7 +97,7 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 	}
 
 	// Generate unique connection ID using ULID
-	connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
+	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 	connID := connULID.String()
 
 	// Subscribe to events

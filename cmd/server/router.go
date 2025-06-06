@@ -216,7 +216,7 @@ func registerPrometheus(app *fiber.App) {
 	prometheus.MustRegister(httpRequestDuration, httpRequestsTotal)
 
 	app.Use(func(c *fiber.Ctx) error {
-		start := time.Now()
+		start := time.Now().UTC()
 		err := c.Next()
 		duration := time.Since(start).Seconds()
 		method := c.Method()

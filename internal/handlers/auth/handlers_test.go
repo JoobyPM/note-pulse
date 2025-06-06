@@ -166,12 +166,13 @@ func setupTestAppWithJWT(authService *MockAuthService) *fiber.App {
 func TestSignUp_Success(t *testing.T) {
 	mockService := &MockAuthService{}
 	app := setupTestApp(mockService)
+	now := time.Now().UTC()
 
 	user := &auth.User{
 		ID:        bson.NewObjectID(),
 		Email:     "test@example.com",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
 
@@ -203,13 +204,14 @@ func TestSignUp_Success(t *testing.T) {
 func TestJWTMiddleware_HappyPath(t *testing.T) {
 	mockService := &MockAuthService{}
 	app := setupTestAppWithJWT(mockService)
+	now := time.Now().UTC()
 
 	jwtSecret := "test-secret-with-32-plus-characters"
 	claims := jwt.MapClaims{
 		"user_id": "60d5ecb74b24c4f9b8c2b1a1",
 		"email":   "test@example.com",
-		"exp":     time.Now().Add(time.Hour).Unix(),
-		"iat":     time.Now().Unix(),
+		"exp":     now.Add(time.Hour).Unix(),
+		"iat":     now.Unix(),
 	}
 
 	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -258,12 +260,13 @@ func TestSignUp_DuplicateEmail(t *testing.T) {
 func TestSignIn_Success(t *testing.T) {
 	mockService := &MockAuthService{}
 	app := setupTestApp(mockService)
+	now := time.Now().UTC()
 
 	user := &auth.User{
 		ID:        bson.NewObjectID(),
 		Email:     "test@example.com",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
 
@@ -319,12 +322,13 @@ func TestSignIn_BadCredentials(t *testing.T) {
 func TestSignIn_RateLimit(t *testing.T) {
 	mockService := &MockAuthService{}
 	app := setupTestApp(mockService)
+	now := time.Now().UTC()
 
 	user := &auth.User{
 		ID:        bson.NewObjectID(),
 		Email:     "test@example.com",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
 

@@ -59,6 +59,7 @@ type ListNotesResponse struct {
 // ErrNoteNotFound - note not found in DB
 var ErrNoteNotFound = errors.New("note not found")
 
+// TODO: [validation] idea «Add HTML sanitisation. Decide on required feature set (Markdown? plaintext?) and use `github.com/microcosm-cc/bluemonday` or similar to sanitise on write, not on read.»
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
 	now := time.Now()

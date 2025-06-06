@@ -21,7 +21,7 @@ func TestRefreshTokensRepo_Create(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	err := repo.Create(ctx, userID, rawToken, expiresAt)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestRefreshTokensRepo_FindActive(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	err := repo.Create(ctx, userID, rawToken, expiresAt)
 	require.NoError(t, err, "should create token")
@@ -66,7 +66,7 @@ func TestRefreshTokensRepo_FindActive_Expired(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
-	expiresAt := time.Now().Add(-1 * time.Hour)
+	expiresAt := time.Now().UTC().Add(-1 * time.Hour)
 
 	err := repo.Create(ctx, userID, rawToken, expiresAt)
 	require.NoError(t, err, "should create token")
@@ -84,7 +84,7 @@ func TestRefreshTokensRepo_Revoke(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	err := repo.Create(ctx, userID, rawToken, expiresAt)
 	require.NoError(t, err, "should create token")
@@ -111,7 +111,7 @@ func TestRefreshTokensRepo_RevokeAllForUser(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	otherUserID := bson.NewObjectID()
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	token1 := "token1"
 	token2 := "token2"
@@ -147,7 +147,7 @@ func TestRefreshTokensRepo_FindActive_MultipleTokens(t *testing.T) {
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	token1 := "token1"
 	token2 := "token2"
@@ -180,7 +180,7 @@ func TestRefreshTokensRepo_Create_Duplicate(t *testing.T) {
 
 	userID := bson.NewObjectID()
 	rawToken := "same-token-for-both-goroutines"
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
 
 	errors := make(chan error, 2)
 	var wg sync.WaitGroup

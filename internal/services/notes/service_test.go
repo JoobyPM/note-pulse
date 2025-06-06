@@ -130,6 +130,7 @@ func TestService_List(t *testing.T) {
 	userID := bson.NewObjectID()
 	noteID1 := bson.NewObjectID()
 	noteID2 := bson.NewObjectID()
+	now := time.Now().UTC()
 
 	mockNotes := []*Note{
 		{
@@ -137,16 +138,16 @@ func TestService_List(t *testing.T) {
 			UserID:    userID,
 			Title:     "Note 1",
 			Body:      "Body 1",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		{
 			ID:        noteID2,
 			UserID:    userID,
 			Title:     "Note 2",
 			Body:      "Body 2",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 
@@ -254,6 +255,7 @@ func TestService_Update(t *testing.T) {
 	title := "Updated Title"
 	body := "Updated Body"
 	color := "#00FF00"
+	now := time.Now().UTC()
 
 	updatedNote := &Note{
 		ID:        noteID,
@@ -261,8 +263,8 @@ func TestService_Update(t *testing.T) {
 		Title:     title,
 		Body:      body,
 		Color:     color,
-		CreatedAt: time.Now().Add(-time.Hour),
-		UpdatedAt: time.Now(),
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now,
 	}
 
 	tests := []struct {

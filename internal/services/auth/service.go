@@ -81,7 +81,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, errors.New("failed to process password")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	user := &User{
 		ID:           bson.NewObjectID(),
 		Email:        email,
@@ -107,7 +107,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, errors.New("failed to generate refresh token")
 	}
 
-	refreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+	refreshExpiresAt := now.Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
 		return nil, errors.New("failed to generate refresh token")
@@ -151,7 +151,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		return nil, errors.New("failed to generate refresh token")
 	}
 
-	refreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+	refreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
 		return nil, errors.New("failed to generate refresh token")
@@ -176,12 +176,14 @@ func (s *Service) GenerateAccessToken(user *User) (string, error) {
 	}
 	jti := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(b[:])
 
+	now := time.Now().UTC()
+
 	claims := jwt.MapClaims{
 		"jti":     jti,
 		"user_id": user.ID.Hex(),
 		"email":   user.Email,
-		"exp":     time.Now().Add(time.Duration(s.config.AccessTokenMinutes) * time.Minute).Unix(),
-		"iat":     time.Now().Unix(),
+		"exp":     now.Add(time.Duration(s.config.AccessTokenMinutes) * time.Minute).Unix(),
+		"iat":     now.Unix(),
 	}
 
 	var method jwt.SigningMethod
@@ -248,7 +250,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 			s.log.Error("failed to generate new refresh token", "error", err)
 			return nil, errors.New("failed to refresh tokens")
 		}
-		newRefreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+		newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 
 		// Check if MongoDB supports transactions
 		client := s.refreshTokenRepo.Client()
@@ -346,6 +348,7 @@ func (s *Service) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
 	return nil
 }
 
+// TODO:[perf] this condidate for optimizatin, idea - «Expose a cheap accessor from the mongo client package, e.g. `mongo.SupportsTransactions() bool`, and cache the value there (it is already stored) and just read the cached flag»
 func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

@@ -194,13 +194,14 @@ func TestService_Refresh_TransactionRollback(t *testing.T) {
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
 	rawToken := "test-refresh-token"
+	now := time.Now().UTC()
 
 	existingToken := &RefreshToken{
 		ID:        tokenID,
 		UserID:    userID,
 		TokenHash: "hashed-token",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		CreatedAt: time.Now(),
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
 	}
 
 	user := &User{
@@ -350,14 +351,18 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
 	rawToken := "test-refresh-token"
+	now := time.Now().UTC()
 
 	existingToken := &RefreshToken{
 		ID:        tokenID,
 		UserID:    userID,
 		TokenHash: "hashed-token",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		CreatedAt: time.Now(),
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
 	}
+
+	t.Log(existingToken.ExpiresAt.String())
+	t.Log(existingToken.CreatedAt.String())
 
 	user := &User{
 		ID:    userID,
