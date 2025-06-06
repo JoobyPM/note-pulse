@@ -33,15 +33,20 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	if lw.n >= lw.limit {
 		// Still drain the data so the pipe can't fill, but signal "written"
 		lw.n += int64(len(p))
-		return len(p), nil
+		return 0, io.ErrShortWrite
 	}
-	remaining := lw.limit - lw.n
-	if int64(len(p)) > remaining {
-		p = p[:remaining]
+
+	want := len(p)
+	if remain := lw.limit - lw.n; int64(want) > remain {
+		p = p[:remain]
 	}
+
 	n, err := lw.w.Write(p)
 	lw.n += int64(n)
-	return len(p), err // Return original length to satisfy interface
+	if int64(want) > int64(n) && err == nil {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 // TestEnvironment holds the test infrastructure

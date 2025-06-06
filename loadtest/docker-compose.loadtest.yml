@@ -14,6 +14,8 @@ services:
   # Lift the sign-in rate-limit during load tests
   ###########################################################################
   server:
+    env_file:
+      - .env.bench
     environment:
       REQUEST_LOGGING_ENABLED: false
       SIGNIN_RATE_PER_MIN: 1000000
