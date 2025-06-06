@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,8 @@ import (
 	"note-pulse/internal/config"
 	"note-pulse/internal/logger"
 
+	"github.com/grafana/pyroscope-go"
+	_ "go.uber.org/automaxprocs"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -47,6 +50,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	logg.Info("log level", "level", cfg.LogLevel)
+
+	if cfg.PyroscopeEnabled {
+		if _, err := pyroscope.Start(pyroscope.Config{
+			ApplicationName: cfg.PyroscopeAppName,
+			ServerAddress:   cfg.PyroscopeServerAddr,
+			Tags:            map[string]string{"commit": commit},
+		}); err != nil {
+			logg.Error("pyroscope start failed", "err", err)
+		} else {
+			logg.Info("pyroscope agent started", "server", cfg.PyroscopeServerAddr)
+		}
+	}
+
+	if cfg.PprofEnabled {
+		go func() {
+			// simple tiny extra server
+			// run on loopback so cAdvisor / Prometheus can scrape if needed
+			if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
+				logg.Error("pprof server error", "err", err)
+			}
+		}()
+		logg.Info("pprof enabled at :6060/debug/pprof/")
+	}
+
 	_, db, err := mongo.Init(ctx, cfg, logg)
 	if err != nil {
 		logg.Error("mongo init", "err", err)
@@ -57,7 +85,7 @@ func main() {
 	logg.Info("starting NotePulse", "port", cfg.AppPort, "version", version, "commit", commit, "built_at", builtAt)
 
 	// Setup router and start server
-	app := setupRouter(cfg)
+	app := setupRouter(ctx, cfg)
 	portStr := fmt.Sprintf(":%d", cfg.AppPort)
 
 	g.Go(func() error {

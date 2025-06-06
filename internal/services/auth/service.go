@@ -29,6 +29,9 @@ type Service struct {
 // token that is expired, revoked or does not belong to the user.
 var ErrInvalidRefreshToken = errors.New("invalid refresh token")
 
+// ErrUserNotFound user not found in DB
+var ErrUserNotFound = errors.New("user not found")
+
 // NewService creates a new auth service
 func NewService(usersRepo UsersRepo, refreshTokenRepo RefreshTokensRepo, cfg config.Config, log *slog.Logger) *Service {
 	return &Service{
@@ -78,7 +81,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, errors.New("failed to process password")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	user := &User{
 		ID:           bson.NewObjectID(),
 		Email:        email,
@@ -104,7 +107,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, errors.New("failed to generate refresh token")
 	}
 
-	refreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+	refreshExpiresAt := now.Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
 		return nil, errors.New("failed to generate refresh token")
@@ -123,7 +126,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 
 	user, err := s.usersRepo.FindByEmail(ctx, email)
 	if err != nil {
-		if err.Error() == "user not found" {
+		if errors.Is(err, ErrUserNotFound) {
 			s.log.Info("user not found for signin", "email", email)
 		} else {
 			s.log.Error("failed to find user by email", "error", err)
@@ -148,7 +151,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		return nil, errors.New("failed to generate refresh token")
 	}
 
-	refreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+	refreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
 		return nil, errors.New("failed to generate refresh token")
@@ -173,20 +176,20 @@ func (s *Service) GenerateAccessToken(user *User) (string, error) {
 	}
 	jti := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(b[:])
 
+	now := time.Now().UTC()
+
 	claims := jwt.MapClaims{
 		"jti":     jti,
 		"user_id": user.ID.Hex(),
 		"email":   user.Email,
-		"exp":     time.Now().Add(time.Duration(s.config.AccessTokenMinutes) * time.Minute).Unix(),
-		"iat":     time.Now().Unix(),
+		"exp":     now.Add(time.Duration(s.config.AccessTokenMinutes) * time.Minute).Unix(),
+		"iat":     now.Unix(),
 	}
 
 	var method jwt.SigningMethod
 	switch strings.ToUpper(s.config.JWTAlgorithm) {
 	case "HS256":
 		method = jwt.SigningMethodHS256
-	case "RS256":
-		method = jwt.SigningMethodRS256
 	default:
 		return "", errors.New("unsupported JWT algorithm")
 	}
@@ -221,16 +224,16 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			s.log.Info("refresh token not found or expired")
-			return nil, errors.New("invalid refresh token")
+			return nil, ErrInvalidRefreshToken
 		}
 		s.log.Error("failed to find refresh token", "error", err)
-		return nil, errors.New("invalid refresh token")
+		return nil, ErrInvalidRefreshToken
 	}
 
 	user, err := s.usersRepo.FindByID(ctx, refreshToken.UserID)
 	if err != nil {
 		s.log.Error("failed to find user for refresh token", "error", err, "user_id", refreshToken.UserID.Hex())
-		return nil, errors.New("invalid refresh token")
+		return nil, ErrInvalidRefreshToken
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)
@@ -247,7 +250,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 			s.log.Error("failed to generate new refresh token", "error", err)
 			return nil, errors.New("failed to refresh tokens")
 		}
-		newRefreshExpiresAt := time.Now().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+		newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 
 		// Check if MongoDB supports transactions
 		client := s.refreshTokenRepo.Client()
@@ -345,6 +348,7 @@ func (s *Service) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
 	return nil
 }
 
+// TODO:[perf] this condidate for optimizatin, idea - «Expose a cheap accessor from the mongo client package, e.g. `mongo.SupportsTransactions() bool`, and cache the value there (it is already stored) and just read the cached flag»
 func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

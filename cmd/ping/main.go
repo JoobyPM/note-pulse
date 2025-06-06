@@ -1,96 +1,92 @@
+// cmd/ping/main.go
+//
+// Build with:
+//   ./scripts/build.sh ./cmd/ping ping
+//
+// Intended for Docker HEALTHCHECK:
+//   HEALTHCHECK CMD ["/ping"]
+
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
-
-	"note-pulse/internal/config"
-	"note-pulse/internal/logger"
 )
 
+// -----------------------------------------------------------------------------
+// Constants
+// -----------------------------------------------------------------------------
 const (
-	// LocalhostURLFormat is the format string for localhost health check URL
-	LocalhostURLFormat = "http://localhost:%d/healthz"
+	defaultPort          = 8080
+	healthEndpoint       = "/healthz"
+	expectedHealthStatus = "ok"
+	requestTimeout       = 1 * time.Second
+
+	// exit codes
+	codeRequestFailed     = 2
+	codeBadHTTPStatus     = 3
+	codeDecodeError       = 4
+	codeReportedUnhealthy = 5
+
+	// log / error templates
+	msgRequestFailed     = "request failed: %v"
+	msgBadHTTPStatus     = "unexpected HTTP status %d"
+	msgDecodeError       = "decode error: %v"
+	msgReportedUnhealthy = "service reported unhealthy: %q"
+	msgHealthy           = "service healthy on port %d"
 )
 
-// healthResp matches the JSON shape returned by /api/v1/healthz
+// healthResp mirrors the optional JSON body { "status": "ok" }.
 type healthResp struct {
 	Status string `json:"status"`
 }
 
 func main() {
-	bootstrap := log.New(os.Stderr, "ping: ", log.LstdFlags)
+	port := detectPort()
+	url := fmt.Sprintf("http://localhost:%d%s", port, healthEndpoint)
 
-	// Set ENV LOG_LEVEL to error, as we don't want to see any logs from the ping command
-	os.Setenv("LOG_LEVEL", "error")
+	client := &http.Client{Timeout: requestTimeout}
 
-	cfg, err := config.Load()
+	resp, err := client.Get(url)
 	if err != nil {
-		bootstrap.Printf("config load failed: %v", err)
-		os.Exit(1)
-	}
-
-	logg, err := logger.Init(cfg)
-	if err != nil {
-		bootstrap.Printf("logger init failed: %v", err)
-		os.Exit(1)
-	}
-
-	url := fmt.Sprintf(LocalhostURLFormat, cfg.AppPort)
-
-	// Create HTTP client with proper timeouts to prevent connection leaks
-	client := &http.Client{
-		Timeout: 1 * time.Second,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   500 * time.Millisecond,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			MaxIdleConns:          2,
-			MaxIdleConnsPerHost:   1,
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		logg.Error("create request", "err", err)
-		os.Exit(1)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logg.Error("request failed", "err", err)
-		os.Exit(1)
+		fail(codeRequestFailed, msgRequestFailed, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logg.Error("unexpected status code", "code", resp.StatusCode)
-		os.Exit(1)
+		fail(codeBadHTTPStatus, msgBadHTTPStatus, resp.StatusCode)
 	}
 
-	var hr healthResp
-	if err := json.NewDecoder(resp.Body).Decode(&hr); err != nil {
-		logg.Error("decode body", "err", err)
-		os.Exit(1)
+	var h healthResp
+	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil && !errors.Is(err, io.EOF) {
+		fail(codeDecodeError, msgDecodeError, err)
+	}
+	if h.Status != "" && h.Status != expectedHealthStatus {
+		fail(codeReportedUnhealthy, msgReportedUnhealthy, h.Status)
 	}
 
-	if hr.Status != "ok" {
-		logg.Error("service reported unhealthy", "status", hr.Status)
-		os.Exit(1)
-	}
+	log.Printf(msgHealthy, port)
+}
 
-	logg.Info("service healthy")
+// detectPort parses APP_PORT and falls back to defaultPort.
+func detectPort() int {
+	if v := os.Getenv("APP_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
+			return p
+		}
+	}
+	return defaultPort
+}
+
+// fail logs a message and exits with the given code.
+func fail(code int, format string, args ...any) {
+	log.Printf(format, args...)
+	os.Exit(code)
 }

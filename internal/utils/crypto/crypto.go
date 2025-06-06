@@ -20,6 +20,7 @@ func CheckPassword(password, hash string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
+// TODO: [pref] easy win - «`crypto.IsStrong` compiles three regexes per call; pre-compile them at package init.»
 // IsStrong checks if a password meets minimum strength requirements
 // Requirements: ≥8 chars, 1 upper, 1 lower, 1 digit
 func IsStrong(password string) bool {

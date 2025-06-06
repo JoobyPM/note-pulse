@@ -77,19 +77,19 @@ func startMongoTC(ctx context.Context, t *testing.T) (string, func(), error) {
 
 	host, err := mongoC.Host(ctx)
 	if err != nil {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 		return "", nil, err
 	}
 
 	port, err := mongoC.MappedPort(ctx, "27017")
 	if err != nil {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 		return "", nil, err
 	}
 
 	mongoURI := fmt.Sprintf("mongodb://root:example@%s:%s/", host, port.Port())
 	terminateFn := func() {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 	}
 
 	return mongoURI, terminateFn, nil
@@ -159,9 +159,9 @@ func waitHealthy(baseURL string, timeout time.Duration) error {
 	healthURL := fmt.Sprintf("%s/healthz", baseURL)
 	client := &http.Client{Timeout: 2 * time.Second}
 
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().UTC().Add(timeout)
 	for {
-		if time.Now().After(deadline) {
+		if time.Now().UTC().After(deadline) {
 			return fmt.Errorf("server never responded on %s", healthURL)
 		}
 

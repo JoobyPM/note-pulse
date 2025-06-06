@@ -63,8 +63,8 @@ func TestRefreshTokenRotation_E2E(t *testing.T) {
 
 	var errorResp map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errorResp))
-	assert.Contains(t, errorResp["error"].(string), "invalid",
-		"Error message should indicate invalid token")
+	assert.Contains(t, errorResp["error"].(string), "Unauthorized",
+		"Error message should indicate invalid token - Unauthorized: but got - "+errorResp["error"].(string))
 
 	t.Log("step 4: verify the NEW refresh token still works")
 	newRefreshReq := map[string]string{

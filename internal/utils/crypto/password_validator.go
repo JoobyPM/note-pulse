@@ -11,12 +11,11 @@ func cryptoPasswordRule(fl validator.FieldLevel) bool {
 }
 
 // RegisterPasswordValidator registers the "password" validation tag with the validator
-// Safely handles duplicate registration by checking if already registered
 func RegisterPasswordValidator(v *validator.Validate) error {
-	// Try to register, if it fails due to duplicate, that's fine
+	// Try to register
 	err := v.RegisterValidation("password", cryptoPasswordRule)
-	if err != nil && err.Error() == "validator: tag 'password' already exists" {
-		return nil // Already registered, not an error
+	if err != nil {
+		return err
 	}
-	return err
+	return nil
 }

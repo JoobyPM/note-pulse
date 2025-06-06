@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"context"
 	"crypto/rand"
 	"net/http"
 	"testing"
@@ -33,7 +34,7 @@ func NewMockHub() *MockHub {
 	}
 }
 
-func (m *MockHub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func()) {
+func (m *MockHub) Subscribe(ctx context.Context, connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func()) {
 	sub := &notes.Subscriber{
 		UserID: userID,
 		Ch:     make(chan notes.NoteEvent, 10),
@@ -43,12 +44,12 @@ func (m *MockHub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*notes.Su
 	m.subscribeCount++
 
 	cancel := func() {
-		m.Unsubscribe(connULID)
+		m.Unsubscribe(ctx, connULID)
 	}
 	return sub, cancel
 }
 
-func (m *MockHub) Unsubscribe(connULID ulid.ULID) {
+func (m *MockHub) Unsubscribe(ctx context.Context, connULID ulid.ULID) {
 	if sub, exists := m.subscribers[connULID]; exists {
 		close(sub.Ch)
 		close(sub.Done)
@@ -61,11 +62,12 @@ func (m *MockHub) GetSubscriberCount() int {
 }
 
 func createTestJWT(userID string, email string, secret []byte, expiry time.Duration) (string, error) {
+	now := time.Now().UTC()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
-		"exp":     time.Now().Add(expiry).Unix(),
-		"iat":     time.Now().Unix(),
+		"exp":     now.Add(expiry).Unix(),
+		"iat":     now.Unix(),
 	})
 
 	return token.SignedString(secret)
@@ -274,6 +276,7 @@ func TestWSSessionTimeout(t *testing.T) {
 			email := "test@example.com"
 			c.Locals("userID", userID)
 			c.Locals("userEmail", email)
+			c.Locals("parentCtx", c.Context())
 			return c.Next()
 		}
 		return c.SendStatus(400)
@@ -296,13 +299,15 @@ func TestWSSessionTimeout(t *testing.T) {
 	}
 	defer conn.Close()
 
+	now := time.Now().UTC()
+
 	// Set read deadline to detect close
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := now.Add(5 * time.Second)
 	setReadDeadlineErr := conn.SetReadDeadline(deadline)
 	require.NoError(t, setReadDeadlineErr)
 
 	// Wait for the connection to be closed due to timeout
-	start := time.Now()
+	start := time.Now().UTC()
 	_, _, readMessageErr := conn.ReadMessage()
 	require.Error(t, readMessageErr)
 	elapsed := time.Since(start)
@@ -323,6 +328,7 @@ func TestWSSessionTimeout(t *testing.T) {
 // Integration test that verifies proper cleanup when WebSocket closes
 func TestWSConnectionCleanup(t *testing.T) {
 	hub := NewMockHub()
+	now := time.Now().UTC()
 
 	// Initial state
 	require.Equal(t, 0, hub.GetSubscriberCount())
@@ -330,10 +336,10 @@ func TestWSConnectionCleanup(t *testing.T) {
 	// Simulate WebSocket connection establishment and closure
 	// This is a simplified test since we can't easily mock the full WebSocket lifecycle
 	userID := bson.NewObjectID()
-	connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
+	connULID := ulid.MustNew(ulid.Timestamp(now), rand.Reader)
 
 	// Subscribe (simulating what happens in WSNotesStream)
-	sub, cancel := hub.Subscribe(connULID, userID)
+	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 	require.Equal(t, 1, hub.GetSubscriberCount())
 
 	// Simulate connection closure (cancel is called in defer)
@@ -408,13 +414,14 @@ func TestValidateJWT_MissingClaims(t *testing.T) {
 	hub := NewMockHub()
 	secret := "test-secret-key-with-32-characters"
 	maxSessionSec := 900
+	now := time.Now().UTC()
 
 	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
 
 	// Create token without required claims
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp": time.Now().Add(time.Hour).Unix(),
-		"iat": time.Now().Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+		"iat": now.Unix(),
 		// Missing user_id and email
 	})
 

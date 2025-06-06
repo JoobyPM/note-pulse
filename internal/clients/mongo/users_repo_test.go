@@ -26,14 +26,15 @@ func TestUsersRepo_Create(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewUsersRepo(db)
+	now := time.Now().UTC()
+	repo := NewUsersRepo(context.Background(), db)
 
 	user := &auth.User{
 		ID:           bson.NewObjectID(),
 		Email:        "test@example.com",
 		PasswordHash: "hashedpassword",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	err := repo.Create(ctx, user)
@@ -57,18 +58,18 @@ func TestUsersRepo_FindByEmail(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewUsersRepo(db)
+	repo := NewUsersRepo(context.Background(), db)
 
 	_, err := repo.FindByEmail(ctx, "nonexistent@example.com")
 	assert.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "user not found", "expected error message")
-
+	assert.Contains(t, err.Error(), auth.ErrUserNotFound.Error(), "expected error message")
+	now := time.Now().UTC()
 	user := &auth.User{
 		ID:           bson.NewObjectID(),
 		Email:        "test@example.com",
 		PasswordHash: "hashedpassword",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	err = repo.Create(ctx, user)

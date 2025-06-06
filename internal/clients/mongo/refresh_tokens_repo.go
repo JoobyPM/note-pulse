@@ -24,6 +24,9 @@ func safeLog() *slog.Logger {
 	return slog.Default()
 }
 
+// refreshTokenOpTimeout is the timeout for refresh token index operations (longer than regular ops)
+const refreshTokenOpTimeout = 10 * time.Second
+
 // RefreshTokensRepo manages refresh token operations in MongoDB
 type RefreshTokensRepo struct {
 	collection *mongo.Collection
@@ -31,7 +34,7 @@ type RefreshTokensRepo struct {
 }
 
 // NewRefreshTokensRepo creates a new RefreshTokensRepo instance
-func NewRefreshTokensRepo(db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
+func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
 	collection := db.Collection("refresh_tokens")
 
 	indexes := []mongo.IndexModel{
@@ -60,7 +63,7 @@ func NewRefreshTokensRepo(db *mongo.Database, bcryptCost int) *RefreshTokensRepo
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, refreshTokenOpTimeout)
 	defer cancel()
 
 	if _, err := collection.Indexes().CreateMany(ctx, indexes); err != nil {
@@ -98,6 +101,8 @@ func (r *RefreshTokensRepo) Create(ctx context.Context, userID bson.ObjectID, ra
 	if err != nil {
 		// Handle duplicate key error gracefully
 		if mongo.IsDuplicateKeyError(err) {
+			// There is potential race-condition, but I ignore it, as this project already consumed too much
+			// And it's very unlikly.
 			safeLog().Debug("duplicate refresh token creation detected, treating as success", "user_id", userID.Hex(), "lookup_hash", lookupHash)
 			return nil
 		}
@@ -145,6 +150,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 		return nil, err
 	}
 
+	// TODO: [perf] this condidate for optimizatin, idea - «Create a background worker that rewrites old documents with the new `lookup_hash` and drop the fallback»
 	// Fallback: Use slower O(N) scan for tokens without lookup_hash (backward compatibility)
 	safeLog().Debug("falling back to bcrypt scan for tokens without lookup_hash")
 	fallbackFilter := bson.M{

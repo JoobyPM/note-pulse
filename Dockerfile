@@ -16,15 +16,15 @@ RUN go mod download
 COPY . .
 
 
-RUN go install github.com/swaggo/swag/cmd/swag@latest
+RUN go install github.com/swaggo/swag/cmd/swag@v1.16.4
 RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
 
 # Build the application using shared build script
 RUN chmod +x ./scripts/build.sh && \
-    CGO_ENABLED=0 GOOS=linux ./scripts/build.sh ./cmd/server main
+    ./scripts/build.sh ./cmd/server main
 
 # Build the ping binary
-RUN CGO_ENABLED=0 GOOS=linux ./scripts/build.sh ./cmd/ping ping
+RUN ./scripts/build.sh ./cmd/ping ping
 
 # Final stage - smaller distroless
 FROM gcr.io/distroless/static-debian12:nonroot

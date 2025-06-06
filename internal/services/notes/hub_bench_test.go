@@ -23,9 +23,9 @@ func BenchmarkHub_Subscribe(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
+			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 			userID := userIDs[i%len(userIDs)]
-			_, cancel := hub.Subscribe(connULID, userID)
+			_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 			cancel() // Clean up immediately
 			i++
 		}
@@ -46,8 +46,8 @@ func BenchmarkHub_Broadcast(b *testing.B) {
 	for i := range numUsers {
 		users[i] = bson.NewObjectID()
 		for range numConnPerUser {
-			connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
-			_, cancel := hub.Subscribe(connULID, users[i])
+			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+			_, cancel := hub.Subscribe(context.Background(), connULID, users[i])
 			cancels = append(cancels, cancel)
 		}
 	}
@@ -91,10 +91,10 @@ func BenchmarkHub_ConcurrentSubscribeUnsubscribe(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			userID := bson.NewObjectID()
-			connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
+			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 
 			// Subscribe
-			_, cancel := hub.Subscribe(connULID, userID)
+			_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 
 			// Broadcast to this user
 			note := &Note{
@@ -146,8 +146,8 @@ func benchmarkWithUserCount(b *testing.B, userCount int) {
 
 	for i := 0; i < userCount; i++ {
 		users[i] = bson.NewObjectID()
-		connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
-		_, cancel := hub.Subscribe(connULID, users[i])
+		connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+		_, cancel := hub.Subscribe(context.Background(), connULID, users[i])
 		cancels[i] = cancel
 	}
 	defer func() {
@@ -193,8 +193,8 @@ func BenchmarkHub_ConcurrentBroadcastDifferentUsers(b *testing.B) {
 
 	for i := 0; i < numUsers; i++ {
 		users[i] = bson.NewObjectID()
-		connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
-		_, cancel := hub.Subscribe(connULID, users[i])
+		connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+		_, cancel := hub.Subscribe(context.Background(), connULID, users[i])
 		cancels[i] = cancel
 	}
 	defer func() {
@@ -249,8 +249,8 @@ func BenchmarkHub_Memory(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
-			_, cancel := hub.Subscribe(connULID, userID)
+			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+			_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 			cancel()
 		}
 	})
@@ -265,8 +265,8 @@ func BenchmarkHub_Memory(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			userID := userIDs[i%len(userIDs)]
-			connULID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
-			_, cancel := hub.Subscribe(connULID, userID)
+			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+			_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 			cancel()
 		}
 	})

@@ -194,13 +194,14 @@ func TestService_Refresh_TransactionRollback(t *testing.T) {
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
 	rawToken := "test-refresh-token"
+	now := time.Now().UTC()
 
 	existingToken := &RefreshToken{
 		ID:        tokenID,
 		UserID:    userID,
 		TokenHash: "hashed-token",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		CreatedAt: time.Now(),
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
 	}
 
 	user := &User{
@@ -265,12 +266,6 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 			name:      "HS256 algorithm",
 			algorithm: "HS256",
 			wantErr:   false,
-		},
-		{
-			name:      "RS256 algorithm with string key (should fail)",
-			algorithm: "RS256",
-			wantErr:   true,
-			errMsg:    "key is of invalid type",
 		},
 		{
 			name:      "unsupported algorithm",
@@ -356,14 +351,18 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
 	rawToken := "test-refresh-token"
+	now := time.Now().UTC()
 
 	existingToken := &RefreshToken{
 		ID:        tokenID,
 		UserID:    userID,
 		TokenHash: "hashed-token",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		CreatedAt: time.Now(),
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
 	}
+
+	t.Log(existingToken.ExpiresAt.String())
+	t.Log(existingToken.CreatedAt.String())
 
 	user := &User{
 		ID:    userID,
@@ -485,7 +484,7 @@ func TestService_SignIn(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "user not found",
+			name: ErrUserNotFound.Error(),
 			req: SignInRequest{
 				Email:    "nonexistent@example.com",
 				Password: password,

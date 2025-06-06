@@ -17,9 +17,11 @@ LD_FLAGS="-s -w -X main.version=$TAG -X main.commit=$REV -X main.builtAt=$BUILD_
 TARGET="${1:-./cmd/server}"
 OUTPUT="${2:-server}"
 CGO_ENABLED="${CGO_ENABLED:-0}"
-GOOS="${GOOS:-}"
+GOOS="${GOOS:-linux}"
 GOARCH="${GOARCH:-}"
 
+echo "Target OS - $GOOS"
+echo "Targte arch - $GOARCH"
 echo "Building $TARGET -> $OUTPUT"
 echo "Version: $TAG"
 echo "Commit: $REV"

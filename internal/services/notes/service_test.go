@@ -130,6 +130,7 @@ func TestService_List(t *testing.T) {
 	userID := bson.NewObjectID()
 	noteID1 := bson.NewObjectID()
 	noteID2 := bson.NewObjectID()
+	now := time.Now().UTC()
 
 	mockNotes := []*Note{
 		{
@@ -137,16 +138,16 @@ func TestService_List(t *testing.T) {
 			UserID:    userID,
 			Title:     "Note 1",
 			Body:      "Body 1",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		{
 			ID:        noteID2,
 			UserID:    userID,
 			Title:     "Note 2",
 			Body:      "Body 2",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 
@@ -254,6 +255,7 @@ func TestService_Update(t *testing.T) {
 	title := "Updated Title"
 	body := "Updated Body"
 	color := "#00FF00"
+	now := time.Now().UTC()
 
 	updatedNote := &Note{
 		ID:        noteID,
@@ -261,8 +263,8 @@ func TestService_Update(t *testing.T) {
 		Title:     title,
 		Body:      body,
 		Color:     color,
-		CreatedAt: time.Now().Add(-time.Hour),
-		UpdatedAt: time.Now(),
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now,
 	}
 
 	tests := []struct {
@@ -288,15 +290,15 @@ func TestService_Update(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "note not found",
+			name: ErrNoteNotFound.Error(),
 			req: UpdateNoteRequest{
 				Title: &title,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
 			},
 			wantErr: true,
-			errMsg:  "note not found",
+			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
 			name: "repository error",
@@ -360,12 +362,12 @@ func TestService_Delete(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "note not found",
+			name: ErrNoteNotFound.Error(),
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("note not found"))
+				repo.On("Delete", mock.Anything, userID, noteID).Return(ErrNoteNotFound)
 			},
 			wantErr: true,
-			errMsg:  "note not found",
+			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
 			name: "repository error",
@@ -413,7 +415,7 @@ func TestService_CrossUserSafety(t *testing.T) {
 			operation: "update",
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				// User2 tries to update User1's note - should fail
-				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
 			},
 		},
 		{
@@ -421,7 +423,7 @@ func TestService_CrossUserSafety(t *testing.T) {
 			operation: "delete",
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				// User2 tries to delete User1's note - should fail
-				repo.On("Delete", mock.Anything, user2, noteID).Return(errors.New("note not found"))
+				repo.On("Delete", mock.Anything, user2, noteID).Return(ErrNoteNotFound)
 			},
 		},
 	}
@@ -440,12 +442,12 @@ func TestService_CrossUserSafety(t *testing.T) {
 				req := UpdateNoteRequest{Title: &title}
 				resp, err := service.Update(context.Background(), user2, noteID, req)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "note not found")
+				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
 				assert.Nil(t, resp)
 			case "delete":
 				err := service.Delete(context.Background(), user2, noteID)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "note not found")
+				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
 			}
 
 			repo.AssertExpectations(t)

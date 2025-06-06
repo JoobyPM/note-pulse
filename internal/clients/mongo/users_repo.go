@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"errors"
-	"time"
 
 	"note-pulse/internal/services/auth"
 
@@ -18,7 +17,7 @@ type UsersRepo struct {
 }
 
 // NewUsersRepo creates a new users repository
-func NewUsersRepo(db *mongo.Database) *UsersRepo {
+func NewUsersRepo(parentCtx context.Context, db *mongo.Database) *UsersRepo {
 	collection := db.Collection("users")
 
 	indexModel := mongo.IndexModel{
@@ -26,7 +25,7 @@ func NewUsersRepo(db *mongo.Database) *UsersRepo {
 		Options: options.Index().SetUnique(true),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, MongoOpTimeout)
 	defer cancel()
 
 	// Ignore error if index already exists
@@ -39,7 +38,7 @@ func NewUsersRepo(db *mongo.Database) *UsersRepo {
 
 // Create creates a new user in the database
 func (r *UsersRepo) Create(ctx context.Context, user *auth.User) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
 	defer cancel()
 
 	_, err := r.collection.InsertOne(ctx, user)
@@ -55,14 +54,14 @@ func (r *UsersRepo) Create(ctx context.Context, user *auth.User) error {
 
 // FindByEmail finds a user by email address
 func (r *UsersRepo) FindByEmail(ctx context.Context, email string) (*auth.User, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
 	defer cancel()
 
 	var user auth.User
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("user not found")
+			return nil, auth.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -76,7 +75,7 @@ func (r *UsersRepo) FindByID(ctx context.Context, id bson.ObjectID) (*auth.User,
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("user not found")
+			return nil, auth.ErrUserNotFound
 		}
 		return nil, err
 	}

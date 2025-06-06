@@ -137,6 +137,10 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 
 	resp, err := h.authService.Refresh(c.Context(), req.RefreshToken)
 	if err != nil {
+		if errors.Is(err, auth.ErrInvalidRefreshToken) {
+			logger.L().Info("invalid refresh token reuse detected", "remote", c.IP(), "error", err)
+			return httperr.Fail(httperr.ErrUnauthorized)
+		}
 		logger.L().Error("refresh service failed", "handler", "Refresh", "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  401,
