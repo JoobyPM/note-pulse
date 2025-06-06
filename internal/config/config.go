@@ -122,8 +122,8 @@ func ResetCache() {
 
 // Validate checks if required configuration fields are properly set
 func (c Config) Validate() error {
-	if c.AppPort <= 0 {
-		return errors.New("APP_PORT must be greater than 0")
+	if c.AppPort <= 0 || c.AppPort > 65535 {
+		return errors.New("APP_PORT must be between 1 and 65535")
 	}
 	if c.BcryptCost < 8 || c.BcryptCost > 16 {
 		return errors.New("BCRYPT_COST must be between 8 and 16")
