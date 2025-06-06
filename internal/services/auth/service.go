@@ -29,6 +29,9 @@ type Service struct {
 // token that is expired, revoked or does not belong to the user.
 var ErrInvalidRefreshToken = errors.New("invalid refresh token")
 
+// ErrUserNotFound user not found in DB
+var ErrUserNotFound = errors.New("user not found")
+
 // NewService creates a new auth service
 func NewService(usersRepo UsersRepo, refreshTokenRepo RefreshTokensRepo, cfg config.Config, log *slog.Logger) *Service {
 	return &Service{
@@ -123,7 +126,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 
 	user, err := s.usersRepo.FindByEmail(ctx, email)
 	if err != nil {
-		if err.Error() == "user not found" {
+		if errors.Is(err, ErrUserNotFound) {
 			s.log.Info("user not found for signin", "email", email)
 		} else {
 			s.log.Error("failed to find user by email", "error", err)

@@ -133,7 +133,7 @@ func (r *NotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, pa
 	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updatedNote)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("note not found")
+			return nil, notes.ErrNoteNotFound
 		}
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (r *NotesRepo) Delete(ctx context.Context, userID, noteID bson.ObjectID) er
 	}
 
 	if result.DeletedCount == 0 {
-		return errors.New("note not found")
+		return notes.ErrNoteNotFound
 	}
 
 	return nil

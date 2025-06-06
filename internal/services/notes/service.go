@@ -56,6 +56,9 @@ type ListNotesResponse struct {
 	NextCursor string  `json:"next_cursor,omitempty" example:"683cdb8aa96ad71e8e075bd2"`
 }
 
+// ErrNoteNotFound - note not found in DB
+var ErrNoteNotFound = errors.New("note not found")
+
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
 	now := time.Now()
@@ -124,9 +127,9 @@ func (s *Service) Update(ctx context.Context, userID, noteID bson.ObjectID, req 
 
 	updatedNote, err := s.repo.Update(ctx, userID, noteID, patch)
 	if err != nil {
-		if err.Error() == "note not found" {
+		if errors.Is(err, ErrNoteNotFound) {
 			s.log.Info("note not found for update", "user_id", userID.Hex(), "note_id", noteID.Hex())
-			return nil, errors.New("note not found")
+			return nil, ErrNoteNotFound
 		}
 		s.log.Error("failed to update note", "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
 		return nil, errors.New("failed to update note")
@@ -143,9 +146,9 @@ func (s *Service) Update(ctx context.Context, userID, noteID bson.ObjectID, req 
 // Delete deletes a note belonging to the user
 func (s *Service) Delete(ctx context.Context, userID, noteID bson.ObjectID) error {
 	if err := s.repo.Delete(ctx, userID, noteID); err != nil {
-		if err.Error() == "note not found" {
+		if errors.Is(err, ErrNoteNotFound) {
 			s.log.Info("note not found for delete", "user_id", userID.Hex(), "note_id", noteID.Hex())
-			return errors.New("note not found")
+			return ErrNoteNotFound
 		}
 		s.log.Error("failed to delete note", "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
 		return errors.New("failed to delete note")

@@ -62,7 +62,7 @@ func (r *UsersRepo) FindByEmail(ctx context.Context, email string) (*auth.User, 
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("user not found")
+			return nil, auth.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (r *UsersRepo) FindByID(ctx context.Context, id bson.ObjectID) (*auth.User,
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("user not found")
+			return nil, auth.ErrUserNotFound
 		}
 		return nil, err
 	}

@@ -479,7 +479,7 @@ func TestService_SignIn(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "user not found",
+			name: ErrUserNotFound.Error(),
 			req: SignInRequest{
 				Email:    "nonexistent@example.com",
 				Password: password,

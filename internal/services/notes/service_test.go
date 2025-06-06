@@ -288,15 +288,15 @@ func TestService_Update(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "note not found",
+			name: ErrNoteNotFound.Error(),
 			req: UpdateNoteRequest{
 				Title: &title,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
 			},
 			wantErr: true,
-			errMsg:  "note not found",
+			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
 			name: "repository error",
@@ -360,12 +360,12 @@ func TestService_Delete(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "note not found",
+			name: ErrNoteNotFound.Error(),
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("note not found"))
+				repo.On("Delete", mock.Anything, userID, noteID).Return(ErrNoteNotFound)
 			},
 			wantErr: true,
-			errMsg:  "note not found",
+			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
 			name: "repository error",
@@ -413,7 +413,7 @@ func TestService_CrossUserSafety(t *testing.T) {
 			operation: "update",
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				// User2 tries to update User1's note - should fail
-				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("note not found"))
+				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
 			},
 		},
 		{
@@ -421,7 +421,7 @@ func TestService_CrossUserSafety(t *testing.T) {
 			operation: "delete",
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				// User2 tries to delete User1's note - should fail
-				repo.On("Delete", mock.Anything, user2, noteID).Return(errors.New("note not found"))
+				repo.On("Delete", mock.Anything, user2, noteID).Return(ErrNoteNotFound)
 			},
 		},
 	}
@@ -440,12 +440,12 @@ func TestService_CrossUserSafety(t *testing.T) {
 				req := UpdateNoteRequest{Title: &title}
 				resp, err := service.Update(context.Background(), user2, noteID, req)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "note not found")
+				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
 				assert.Nil(t, resp)
 			case "delete":
 				err := service.Delete(context.Background(), user2, noteID)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "note not found")
+				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
 			}
 
 			repo.AssertExpectations(t)

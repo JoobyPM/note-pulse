@@ -61,7 +61,7 @@ func TestUsersRepo_FindByEmail(t *testing.T) {
 
 	_, err := repo.FindByEmail(ctx, "nonexistent@example.com")
 	assert.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "user not found", "expected error message")
+	assert.Contains(t, err.Error(), auth.ErrUserNotFound.Error(), "expected error message")
 
 	user := &auth.User{
 		ID:           bson.NewObjectID(),

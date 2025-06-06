@@ -2,6 +2,7 @@ package notes
 
 import (
 	"context"
+	"errors"
 
 	"note-pulse/internal/handlers/httperr"
 	"note-pulse/internal/logger"
@@ -167,7 +168,7 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 		logger.L().Warn("missing note ID parameter", "handler", "Update", "userID", userID.Hex(), "path", c.Path())
 		return httperr.Fail(httperr.E{
 			Status:  400,
-			Message: "note not found",
+			Message: notes.ErrNoteNotFound.Error(),
 		})
 	}
 
@@ -176,7 +177,7 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 		logger.L().Warn("invalid note ID parameter", "handler", "Update", "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  400,
-			Message: "note not found",
+			Message: notes.ErrNoteNotFound.Error(),
 		})
 	}
 
@@ -196,11 +197,11 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 
 	resp, err := h.notesService.Update(c.Context(), userID, noteID, req)
 	if err != nil {
-		if err.Error() == "note not found" {
+		if errors.Is(err, notes.ErrNoteNotFound) {
 			logger.L().Info("note not found for update", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex())
 			return httperr.Fail(httperr.E{
 				Status:  400,
-				Message: "note not found",
+				Message: notes.ErrNoteNotFound.Error(),
 			})
 		}
 		logger.L().Error("update note service failed", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
@@ -235,7 +236,7 @@ func (h *Handlers) Delete(c *fiber.Ctx) error {
 		logger.L().Warn("missing note ID parameter", "handler", "Delete", "userID", userID.Hex(), "path", c.Path())
 		return httperr.Fail(httperr.E{
 			Status:  400,
-			Message: "note not found",
+			Message: notes.ErrNoteNotFound.Error(),
 		})
 	}
 
@@ -244,17 +245,17 @@ func (h *Handlers) Delete(c *fiber.Ctx) error {
 		logger.L().Warn("invalid note ID parameter", "handler", "Delete", "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
 		return httperr.Fail(httperr.E{
 			Status:  400,
-			Message: "note not found",
+			Message: notes.ErrNoteNotFound.Error(),
 		})
 	}
 
 	err = h.notesService.Delete(c.Context(), userID, noteID)
 	if err != nil {
-		if err.Error() == "note not found" {
+		if errors.Is(err, notes.ErrNoteNotFound) {
 			logger.L().Info("note not found for delete", "handler", "Delete", "userID", userID.Hex(), "noteID", noteID.Hex())
 			return httperr.Fail(httperr.E{
 				Status:  400,
-				Message: "note not found",
+				Message: notes.ErrNoteNotFound.Error(),
 			})
 		}
 		logger.L().Error("delete note service failed", "handler", "Delete", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
