@@ -21,9 +21,9 @@ The application can be configured using environment variables or a `.env` file:
 
 ### Authentication Configuration
 - `JWT_SECRET` - JWT signing secret (must be at least 32 characters for HS256)
-- `JWT_ALGORITHM` - JWT signing algorithm: HS256, RS256 (default: HS256)
+- `JWT_ALGORITHM` - JWT signing algorithm: HS256 (default: HS256), in future plan to support RS256
 - `ACCESS_TOKEN_MINUTES` - Access token expiry time in minutes (default: 15)
-- `BCRYPT_COST` - Bcrypt cost factor for password hashing (default: 10, range: 8-16)
+- `BCRYPT_COST` - Bcrypt cost factor for password hashing (default: 8, range: 8-16)
 - `SIGNIN_RATE_PER_MIN` - Rate limit for sign-in attempts per minute (default: 5)
 
 ### Refresh Token Configuration
@@ -36,5 +36,6 @@ The application can be configured using environment variables or a `.env` file:
 
 ### Metrics Configuration
 - `ROUTE_METRICS_ENABLED` - Enable route metrics (default: true)
+- `REQUEST_LOGGING_ENABLED` - Enable HTTP request logs (default: true)
 
 WebSocket sessions are automatically terminated after the configured duration to prevent long-lived connections with expired tokens. Clients should reconnect with fresh JWT tokens when sessions expire.

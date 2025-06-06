@@ -267,12 +267,6 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "RS256 algorithm with string key (should fail)",
-			algorithm: "RS256",
-			wantErr:   true,
-			errMsg:    "key is of invalid type",
-		},
-		{
 			name:      "unsupported algorithm",
 			algorithm: "INVALID",
 			wantErr:   true,

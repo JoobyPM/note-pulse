@@ -9,25 +9,26 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	AppPort             int    `mapstructure:"APP_PORT"`
-	BcryptCost          int    `mapstructure:"BCRYPT_COST"`
-	SignInRatePerMin    int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
-	LogLevel            string `mapstructure:"LOG_LEVEL"`
-	LogFormat           string `mapstructure:"LOG_FORMAT"`
-	MongoURI            string `mapstructure:"MONGO_URI"`
-	MongoDBName         string `mapstructure:"MONGO_DB_NAME"`
-	JWTSecret           string `mapstructure:"JWT_SECRET"`
-	JWTAlgorithm        string `mapstructure:"JWT_ALGORITHM"`
-	WSMaxSessionSec     int    `mapstructure:"WS_MAX_SESSION_SEC"`
-	AccessTokenMinutes  int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
-	RefreshTokenDays    int    `mapstructure:"REFRESH_TOKEN_DAYS"`
-	RefreshTokenRotate  bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
-	WSOutboxBuffer      int    `mapstructure:"WS_OUTBOX_BUFFER"`
-	RouteMetricsEnabled bool   `mapstructure:"ROUTE_METRICS_ENABLED"`
-	PprofEnabled        bool   `mapstructure:"PPROF_ENABLED"`
-	PyroscopeEnabled    bool   `mapstructure:"PYROSCOPE_ENABLED"`
-	PyroscopeServerAddr string `mapstructure:"PYROSCOPE_SERVER_ADDR"`
-	PyroscopeAppName    string `mapstructure:"PYROSCOPE_APP_NAME"`
+	AppPort               int    `mapstructure:"APP_PORT"`
+	BcryptCost            int    `mapstructure:"BCRYPT_COST"`
+	SignInRatePerMin      int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
+	LogLevel              string `mapstructure:"LOG_LEVEL"`
+	LogFormat             string `mapstructure:"LOG_FORMAT"`
+	MongoURI              string `mapstructure:"MONGO_URI"`
+	MongoDBName           string `mapstructure:"MONGO_DB_NAME"`
+	JWTSecret             string `mapstructure:"JWT_SECRET"`
+	JWTAlgorithm          string `mapstructure:"JWT_ALGORITHM"`
+	WSMaxSessionSec       int    `mapstructure:"WS_MAX_SESSION_SEC"`
+	AccessTokenMinutes    int    `mapstructure:"ACCESS_TOKEN_MINUTES"`
+	RefreshTokenDays      int    `mapstructure:"REFRESH_TOKEN_DAYS"`
+	RefreshTokenRotate    bool   `mapstructure:"REFRESH_TOKEN_ROTATE"`
+	WSOutboxBuffer        int    `mapstructure:"WS_OUTBOX_BUFFER"`
+	RouteMetricsEnabled   bool   `mapstructure:"ROUTE_METRICS_ENABLED"`
+	RequestLoggingEnabled bool   `mapstructure:"REQUEST_LOGGING_ENABLED"`
+	PprofEnabled          bool   `mapstructure:"PPROF_ENABLED"`
+	PyroscopeEnabled      bool   `mapstructure:"PYROSCOPE_ENABLED"`
+	PyroscopeServerAddr   string `mapstructure:"PYROSCOPE_SERVER_ADDR"`
+	PyroscopeAppName      string `mapstructure:"PYROSCOPE_APP_NAME"`
 }
 
 var (
@@ -71,6 +72,7 @@ func Load() (Config, error) {
 	v.SetDefault("REFRESH_TOKEN_ROTATE", true)
 	v.SetDefault("WS_OUTBOX_BUFFER", 256) // WebSocket channel buffer size
 	v.SetDefault("ROUTE_METRICS_ENABLED", true)
+	v.SetDefault("REQUEST_LOGGING_ENABLED", true)
 	v.SetDefault("PPROF_ENABLED", false)
 	v.SetDefault("PYROSCOPE_ENABLED", false)
 	v.SetDefault("PYROSCOPE_SERVER_ADDR", "http://pyroscope:4040")
@@ -157,10 +159,10 @@ func (c Config) Validate() error {
 	}
 	// Validate JWT algorithm
 	switch c.JWTAlgorithm {
-	case "HS256", "RS256":
-		// Valid algorithms
+	case "HS256":
+		// Valid algorithm, in future I may add support RS256
 	default:
-		return errors.New("JWT_ALGORITHM must be either HS256 or RS256")
+		return errors.New("JWT_ALGORITHM must be either HS256")
 	}
 	return nil
 }

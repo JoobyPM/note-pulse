@@ -27,6 +27,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.Equal(t, "HS256", cfg.JWTAlgorithm)
 	assert.Equal(t, 900, cfg.WSMaxSessionSec)
 	assert.Equal(t, 256, cfg.WSOutboxBuffer)
+	assert.Equal(t, true, cfg.RequestLoggingEnabled)
 }
 
 func TestConfig_LoadWithOverride(t *testing.T) {
@@ -228,26 +229,6 @@ func TestConfig_Validate(t *testing.T) {
 			errMsg:  "JWT_SECRET must be at least 32 characters for HS256",
 		},
 		{
-			name: "valid RS256 algorithm",
-			config: Config{
-				AppPort:            8080,
-				BcryptCost:         12,
-				SignInRatePerMin:   5,
-				LogLevel:           "info",
-				LogFormat:          "json",
-				MongoURI:           "mongodb://localhost:27017",
-				MongoDBName:        "test",
-				JWTSecret:          "this-is-a-super-secret-jwt-key-with-32-plus-chars",
-				JWTAlgorithm:       "RS256",
-				AccessTokenMinutes: 15,
-				RefreshTokenDays:   30,
-				RefreshTokenRotate: true,
-				WSMaxSessionSec:    900,
-				WSOutboxBuffer:     256,
-			},
-			wantErr: false,
-		},
-		{
 			name: "invalid JWT algorithm",
 			config: Config{
 				AppPort:            8080,
@@ -266,7 +247,7 @@ func TestConfig_Validate(t *testing.T) {
 				WSOutboxBuffer:     256,
 			},
 			wantErr: true,
-			errMsg:  "JWT_ALGORITHM must be either HS256 or RS256",
+			errMsg:  "JWT_ALGORITHM must be either HS256",
 		},
 	}
 
@@ -300,6 +281,24 @@ func TestConfig_Caching(t *testing.T) {
 	assert.Equal(t, cfg1, cfg2)
 }
 
+func TestConfig_RequestLoggingDisabled(t *testing.T) {
+	t.Parallel()
+	clearConfigEnvVars(t)
+	ResetCache()
+
+	err := os.Setenv("REQUEST_LOGGING_ENABLED", "false")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("REQUEST_LOGGING_ENABLED")
+		require.NoError(t, err)
+	}()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, false, cfg.RequestLoggingEnabled)
+}
+
 func clearConfigEnvVars(t *testing.T) {
 	envVars := []string{
 		"APP_PORT",
@@ -313,6 +312,7 @@ func clearConfigEnvVars(t *testing.T) {
 		"JWT_ALGORITHM",
 		"WS_MAX_SESSION_SEC",
 		"WS_OUTBOX_BUFFER",
+		"REQUEST_LOGGING_ENABLED",
 	}
 
 	for _, envVar := range envVars {

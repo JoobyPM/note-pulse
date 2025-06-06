@@ -1,0 +1,124 @@
+// cmd/k6report/main.go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"sort"
+)
+
+type report struct {
+	Metrics map[string]json.RawMessage `json:"metrics"`
+}
+
+type metric struct {
+	P95        *float64                   `json:"p(95)"`
+	P99        *float64                   `json:"p(99)"`
+	Thresholds map[string]json.RawMessage `json:"thresholds"`
+}
+
+// helpers
+
+func ms(f *float64) string {
+	if f == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f", *f)
+}
+
+// true when **all** threshold expressions passed
+func thresholdsOK(th map[string]json.RawMessage) bool {
+	if len(th) == 0 {
+		return false
+	}
+
+	for _, raw := range th {
+		var old bool
+		if err := json.Unmarshal(raw, &old); err == nil {
+			if old { // true ⇒ failed
+				return false
+			}
+			continue
+		}
+
+		// modern (≥ 0.45) - object with "ok"
+		var obj struct {
+			OK bool `json:"ok"`
+		}
+		if err := json.Unmarshal(raw, &obj); err != nil || !obj.OK {
+			return false // err or ok:false ⇒ failed
+		}
+	}
+	return true
+}
+
+func main() {
+	all, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		panic(err)
+	}
+
+	var rep report
+	if err := json.Unmarshal(all, &rep); err != nil {
+		panic(err)
+	}
+
+	reRoute := regexp.MustCompile(`^http_req_duration\{route:([^}]+)\}$`)
+
+	type row struct {
+		name, p95, p99 string
+		ok             bool
+	}
+	var rows []row
+	var failRateOK *bool
+
+	for name, raw := range rep.Metrics {
+		switch {
+		case name == "http_req_failed":
+			var m metric
+			if json.Unmarshal(raw, &m) == nil {
+				ok := thresholdsOK(m.Thresholds)
+				failRateOK = &ok
+			}
+
+		case reRoute.MatchString(name):
+			var m metric
+			if json.Unmarshal(raw, &m) != nil {
+				continue
+			}
+			route := reRoute.FindStringSubmatch(name)[1]
+			rows = append(rows, row{
+				name: route,
+				p95:  ms(m.P95),
+				p99:  ms(m.P99),
+				ok:   thresholdsOK(m.Thresholds),
+			})
+		}
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+
+	fmt.Println("# k6 SLA report")
+	fmt.Println("")
+	fmt.Println("| route | p95 (ms) | p99 (ms) | SLA |")
+	fmt.Println("|-------|---------:|---------:|:---:|")
+	for _, r := range rows {
+		mark := "❌"
+		if r.ok {
+			mark = "✅"
+		}
+		fmt.Printf("| %s | %s | %s | %s |\n", r.name, r.p95, r.p99, mark)
+	}
+
+	fmt.Println("\n---")
+	if failRateOK != nil {
+		mark := "❌"
+		if *failRateOK {
+			mark = "✅"
+		}
+		fmt.Printf("**http_req_failed**: - (SLA %s)\n", mark)
+	}
+}

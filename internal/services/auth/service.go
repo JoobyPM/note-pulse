@@ -185,8 +185,6 @@ func (s *Service) GenerateAccessToken(user *User) (string, error) {
 	switch strings.ToUpper(s.config.JWTAlgorithm) {
 	case "HS256":
 		method = jwt.SigningMethodHS256
-	case "RS256":
-		method = jwt.SigningMethodRS256
 	default:
 		return "", errors.New("unsupported JWT algorithm")
 	}
@@ -221,16 +219,16 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			s.log.Info("refresh token not found or expired")
-			return nil, errors.New("invalid refresh token")
+			return nil, ErrInvalidRefreshToken
 		}
 		s.log.Error("failed to find refresh token", "error", err)
-		return nil, errors.New("invalid refresh token")
+		return nil, ErrInvalidRefreshToken
 	}
 
 	user, err := s.usersRepo.FindByID(ctx, refreshToken.UserID)
 	if err != nil {
 		s.log.Error("failed to find user for refresh token", "error", err, "user_id", refreshToken.UserID.Hex())
-		return nil, errors.New("invalid refresh token")
+		return nil, ErrInvalidRefreshToken
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)

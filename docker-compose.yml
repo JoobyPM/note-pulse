@@ -19,7 +19,6 @@ x-server-core: &server-core
 services:
   mongo:
     image: mongo:8.0
-    container_name: notepulse-mongo
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
@@ -37,7 +36,6 @@ services:
 
   server:
     <<: *server-core
-    container_name: notepulse-server
     ports:
       - 8080:8080
 
