@@ -34,8 +34,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
+const (
+	HealthzTimeout      = 2 * time.Second
+	RateLimitExpiration = 1 * time.Minute
+)
+
 // setupRouter configures and returns a Fiber app with all routes
-func setupRouter(cfg config.Config) *fiber.App {
+func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 
 	// Initialize validator and register password validation
 	v := validator.New()
@@ -47,8 +52,8 @@ func setupRouter(cfg config.Config) *fiber.App {
 	// Validate JWT algorithm at boot
 	alg := strings.ToUpper(cfg.JWTAlgorithm)
 	switch alg {
-	case "HS256", "RS256":
-		// Valid algorithms
+	case "HS256":
+		// Valid algorithm
 	default:
 		logger.L().Error("unsupported JWT algorithm", "algorithm", cfg.JWTAlgorithm)
 		panic("unsupported JWT algorithm: " + cfg.JWTAlgorithm)
@@ -71,7 +76,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 
 	// Health check endpoint, outside versioned API to appease scanners and to avoid logging
 	app.Get("/healthz", func(c *fiber.Ctx) error {
-		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(c.UserContext(), HealthzTimeout)
 		defer cancel()
 
 		db := mongo.DB()
@@ -99,8 +104,10 @@ func setupRouter(cfg config.Config) *fiber.App {
 	var v1 fiber.Router
 	if cfg.RequestLoggingEnabled {
 		v1 = app.Group("/api/v1", fiberlogger.New())
+		logger.L().Info("request logging enabled")
 	} else {
 		v1 = app.Group("/api/v1")
+		logger.L().Info("request logging disabled")
 	}
 
 	jwtMiddleware := jwtware.New(jwtware.Config{
@@ -134,7 +141,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 
 	limiterMW := limiter.New(limiter.Config{
 		Max:        cfg.SignInRatePerMin,
-		Expiration: 1 * time.Minute,
+		Expiration: RateLimitExpiration,
 		LimitReached: func(c *fiber.Ctx) error {
 			return httperr.Fail(httperr.ErrTooManyRequests)
 		},
@@ -142,8 +149,8 @@ func setupRouter(cfg config.Config) *fiber.App {
 
 	authGrp := v1.Group("/auth")
 
-	usersRepo := mongo.NewUsersRepo(mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(mongo.DB(), cfg.BcryptCost)
+	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
+	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB(), cfg.BcryptCost)
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := authHandlers.NewHandlers(authSvc, v)
 
@@ -154,7 +161,7 @@ func setupRouter(cfg config.Config) *fiber.App {
 	authGrp.Post("/sign-out-all", jwtMiddleware, authHandlers.SignOutAll)
 
 	// Notes routes
-	notesRepo, err := mongo.NewNotesRepo(mongo.DB())
+	notesRepo, err := mongo.NewNotesRepo(ctx, mongo.DB())
 	if err != nil {
 		logger.L().Error("failed to create notes repository", "error", err)
 		panic(err)

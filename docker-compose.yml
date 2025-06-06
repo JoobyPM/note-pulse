@@ -4,7 +4,7 @@ x-server-core: &server-core
     dockerfile: Dockerfile
   image: notepulse-server:latest
   env_file:
-    - .env.example
+    - .env
   depends_on:
     mongo:
       condition: service_healthy

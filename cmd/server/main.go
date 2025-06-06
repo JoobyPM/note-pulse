@@ -50,6 +50,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	logg.Info("log level", "level", cfg.LogLevel)
+
 	if cfg.PyroscopeEnabled {
 		if _, err := pyroscope.Start(pyroscope.Config{
 			ApplicationName: cfg.PyroscopeAppName,
@@ -83,7 +85,7 @@ func main() {
 	logg.Info("starting NotePulse", "port", cfg.AppPort, "version", version, "commit", commit, "built_at", builtAt)
 
 	// Setup router and start server
-	app := setupRouter(cfg)
+	app := setupRouter(ctx, cfg)
 	portStr := fmt.Sprintf(":%d", cfg.AppPort)
 
 	g.Go(func() error {

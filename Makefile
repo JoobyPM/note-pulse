@@ -55,6 +55,9 @@ check: tidy swagger format vet lint test build e2e-check
 check-offline: format vet lint test build e2e-check
 
 e2e:
+	go test -tags e2e ./test -timeout 2m
+
+e2e-debug:
 	go test -tags e2e ./test -timeout 2m -v
 
 e2e-check:

@@ -1,6 +1,7 @@
 package mongo
 
 import (
+	"context"
 	"testing"
 
 	"note-pulse/internal/services/notes"
@@ -117,7 +118,7 @@ func TestNewNotesRepo_IndexCreationError(t *testing.T) {
 				retErr = nil // We expect this to panic
 			}
 		}()
-		return NewNotesRepo(db)
+		return NewNotesRepo(context.Background(), db)
 	}()
 
 	// The function should return error as second parameter

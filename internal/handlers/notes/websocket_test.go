@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"context"
 	"crypto/rand"
 	"net/http"
 	"testing"
@@ -33,7 +34,7 @@ func NewMockHub() *MockHub {
 	}
 }
 
-func (m *MockHub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func()) {
+func (m *MockHub) Subscribe(ctx context.Context, connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func()) {
 	sub := &notes.Subscriber{
 		UserID: userID,
 		Ch:     make(chan notes.NoteEvent, 10),
@@ -43,12 +44,12 @@ func (m *MockHub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*notes.Su
 	m.subscribeCount++
 
 	cancel := func() {
-		m.Unsubscribe(connULID)
+		m.Unsubscribe(ctx, connULID)
 	}
 	return sub, cancel
 }
 
-func (m *MockHub) Unsubscribe(connULID ulid.ULID) {
+func (m *MockHub) Unsubscribe(ctx context.Context, connULID ulid.ULID) {
 	if sub, exists := m.subscribers[connULID]; exists {
 		close(sub.Ch)
 		close(sub.Done)
@@ -275,6 +276,7 @@ func TestWSSessionTimeout(t *testing.T) {
 			email := "test@example.com"
 			c.Locals("userID", userID)
 			c.Locals("userEmail", email)
+			c.Locals("parentCtx", c.Context())
 			return c.Next()
 		}
 		return c.SendStatus(400)
@@ -337,7 +339,7 @@ func TestWSConnectionCleanup(t *testing.T) {
 	connULID := ulid.MustNew(ulid.Timestamp(now), rand.Reader)
 
 	// Subscribe (simulating what happens in WSNotesStream)
-	sub, cancel := hub.Subscribe(connULID, userID)
+	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 	require.Equal(t, 1, hub.GetSubscriberCount())
 
 	// Simulate connection closure (cancel is called in defer)

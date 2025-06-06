@@ -77,19 +77,19 @@ func startMongoTC(ctx context.Context, t *testing.T) (string, func(), error) {
 
 	host, err := mongoC.Host(ctx)
 	if err != nil {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 		return "", nil, err
 	}
 
 	port, err := mongoC.MappedPort(ctx, "27017")
 	if err != nil {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 		return "", nil, err
 	}
 
 	mongoURI := fmt.Sprintf("mongodb://root:example@%s:%s/", host, port.Port())
 	terminateFn := func() {
-		_ = mongoC.Terminate(context.Background())
+		_ = mongoC.Terminate(ctx)
 	}
 
 	return mongoURI, terminateFn, nil

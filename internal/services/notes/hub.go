@@ -52,10 +52,13 @@ func NewHub(bufferSize int) *Hub {
 }
 
 // Subscribe adds a new subscriber to the hub
-func (h *Hub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*Subscriber, func()) {
+func (h *Hub) Subscribe(ctx context.Context, connULID ulid.ULID, userID bson.ObjectID) (*Subscriber, func()) {
 	log := logger.L()
-	if log != nil && log.Enabled(context.Background(), slog.LevelDebug) {
-		log.Debug("subscribing connection", "conn_id", connULID.String(), "user_id", userID.Hex())
+	if log != nil && log.Enabled(ctx, slog.LevelDebug) {
+		log.DebugContext(ctx,
+			"subscribing connection",
+			"conn_id", connULID.String(),
+			"user_id", userID.Hex())
 	}
 
 	h.mu.Lock()
@@ -90,16 +93,16 @@ func (h *Hub) Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*Subscriber, 
 	h.mu.Unlock()
 
 	cancel := func() {
-		h.Unsubscribe(connULID)
+		h.Unsubscribe(ctx, connULID)
 	}
 	return sub, cancel
 }
 
 // Unsubscribe removes a subscriber from the hub
-func (h *Hub) Unsubscribe(connULID ulid.ULID) {
+func (h *Hub) Unsubscribe(ctx context.Context, connULID ulid.ULID) {
 	log := logger.L()
-	if log != nil && log.Enabled(context.Background(), slog.LevelDebug) {
-		log.Debug("unsubscribing connection", "conn_id", connULID.String())
+	if log != nil && log.Enabled(ctx, slog.LevelDebug) {
+		log.DebugContext(ctx, "unsubscribing connection", "conn_id", connULID.String())
 	}
 
 	h.mu.RLock()
@@ -141,14 +144,17 @@ func (h *Hub) Unsubscribe(connULID ulid.ULID) {
 }
 
 // Broadcast delivers ev to every subscriber of ev.Note.UserID
-func (h *Hub) Broadcast(_ context.Context, ev NoteEvent) {
+func (h *Hub) Broadcast(ctx context.Context, ev NoteEvent) {
 	if ev.Note == nil {
 		return
 	}
 
 	log := logger.L()
-	if log != nil && log.Enabled(context.Background(), slog.LevelDebug) {
-		log.Debug("broadcasting event", "user_id", ev.Note.UserID.Hex(), "event_type", ev.Type)
+	if log != nil && log.Enabled(ctx, slog.LevelDebug) {
+		log.DebugContext(ctx,
+			"broadcasting event",
+			"user_id", ev.Note.UserID.Hex(),
+			"event_type", ev.Type)
 	}
 
 	bucket := h.bucket(ev.Note.UserID)
@@ -201,5 +207,6 @@ func (h *Hub) bucket(uid bson.ObjectID) *userSubs {
 	h.mu.RLock()
 	b := h.subscribers[uid]
 	h.mu.RUnlock()
+	// safe: each userSubs has its own mutex guarding internal state
 	return b
 }

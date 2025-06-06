@@ -27,7 +27,7 @@ func TestUsersRepo_Create(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now().UTC()
-	repo := NewUsersRepo(db)
+	repo := NewUsersRepo(context.Background(), db)
 
 	user := &auth.User{
 		ID:           bson.NewObjectID(),
@@ -58,7 +58,7 @@ func TestUsersRepo_FindByEmail(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewUsersRepo(db)
+	repo := NewUsersRepo(context.Background(), db)
 
 	_, err := repo.FindByEmail(ctx, "nonexistent@example.com")
 	assert.Error(t, err, "expected error")

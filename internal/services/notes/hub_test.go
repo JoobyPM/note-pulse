@@ -22,12 +22,12 @@ func TestHub_ChannelClosedAfterUnsubscribe(t *testing.T) {
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 
 	// Subscribe
-	sub, cancel := hub.Subscribe(connULID, userID)
+	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 	require.NotNil(t, sub)
 	require.NotNil(t, cancel)
 
 	// Unsubscribe
-	hub.Unsubscribe(connULID)
+	hub.Unsubscribe(context.Background(), connULID)
 
 	// Verify that sending on the channel panics (channel closed)
 	assert.Panics(t, func() {
@@ -49,7 +49,7 @@ func TestHub_CancelFunctionWorks(t *testing.T) {
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 
 	// Subscribe
-	sub, cancel := hub.Subscribe(connULID, userID)
+	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 	require.NotNil(t, sub)
 	require.NotNil(t, cancel)
 
@@ -96,7 +96,7 @@ func TestHub_ConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 	for i := range numUsers {
 		users[i] = bson.NewObjectID()
 		connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
-		subs[i], cancels[i] = hub.Subscribe(connULID, users[i])
+		subs[i], cancels[i] = hub.Subscribe(context.Background(), connULID, users[i])
 	}
 	defer func() { // make sure we always tidy up
 		for _, c := range cancels {
@@ -204,7 +204,7 @@ func TestHub_RaceConditionDetection(t *testing.T) {
 			userID := bson.NewObjectID()
 			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 
-			sub, cancel := hub.Subscribe(connULID, userID)
+			sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 
 			// Broadcast some events
 			note := &Note{
@@ -264,7 +264,7 @@ func TestHub_UserBucketCleanup(t *testing.T) {
 
 	// Subscribe and unsubscribe
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
-	_, cancel := hub.Subscribe(connULID, userID)
+	_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 
 	// Verify user bucket exists
 	hub.mu.RLock()
@@ -293,7 +293,7 @@ func TestHub_MultipleConnectionsPerUser(t *testing.T) {
 
 	for i := range numConnections {
 		connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
-		sub, cancel := hub.Subscribe(connULID, userID)
+		sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 		subscribers[i] = sub
 		cancels[i] = cancel
 	}
@@ -363,7 +363,7 @@ func TestHub_NoLeakAfterWSDisconnect(t *testing.T) {
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 
 	// Subscribe
-	sub, cancel := hub.Subscribe(connULID, userID)
+	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
 	require.NotNil(t, sub)
 	require.Equal(t, 1, hub.GetSubscriberCount())
 
@@ -414,7 +414,7 @@ func TestHub_BroadcastAfterUnsubscribe_NoPanic(t *testing.T) {
 
 			// Subscribe
 			connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
-			_, cancel := hub.Subscribe(connULID, userID)
+			_, cancel := hub.Subscribe(context.Background(), connULID, userID)
 
 			// Unsubscribe immediately
 			cancel()

@@ -24,6 +24,9 @@ func safeLog() *slog.Logger {
 	return slog.Default()
 }
 
+// refreshTokenOpTimeout is the timeout for refresh token index operations (longer than regular ops)
+const refreshTokenOpTimeout = 10 * time.Second
+
 // RefreshTokensRepo manages refresh token operations in MongoDB
 type RefreshTokensRepo struct {
 	collection *mongo.Collection
@@ -31,7 +34,7 @@ type RefreshTokensRepo struct {
 }
 
 // NewRefreshTokensRepo creates a new RefreshTokensRepo instance
-func NewRefreshTokensRepo(db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
+func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
 	collection := db.Collection("refresh_tokens")
 
 	indexes := []mongo.IndexModel{
@@ -60,7 +63,7 @@ func NewRefreshTokensRepo(db *mongo.Database, bcryptCost int) *RefreshTokensRepo
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, refreshTokenOpTimeout)
 	defer cancel()
 
 	if _, err := collection.Indexes().CreateMany(ctx, indexes); err != nil {

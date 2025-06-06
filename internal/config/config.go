@@ -99,6 +99,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// Normalize JWT algorithm to uppercase
+	cfg.JWTAlgorithm = strings.ToUpper(cfg.JWTAlgorithm)
+
 	// Validate the configuration
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -159,12 +162,9 @@ func (c Config) Validate() error {
 		return errors.New("REFRESH_TOKEN_DAYS must be greater than 0")
 	}
 
-	//Normalize
-	c.JWTAlgorithm = strings.ToUpper(c.JWTAlgorithm)
-	// Validate JWT algorithm
+	// Validate JWT algorithm, in future I may add support RS256
 	switch c.JWTAlgorithm {
 	case "HS256":
-		// Valid algorithm, in future I may add support RS256
 	default:
 		return errors.New("JWT_ALGORITHM must be either HS256")
 	}

@@ -16,7 +16,7 @@ func TestRefreshTokensRepo_Create(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -39,7 +39,7 @@ func TestRefreshTokensRepo_FindActive(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -61,7 +61,7 @@ func TestRefreshTokensRepo_FindActive_Expired(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -79,7 +79,7 @@ func TestRefreshTokensRepo_Revoke(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -106,7 +106,7 @@ func TestRefreshTokensRepo_RevokeAllForUser(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -143,7 +143,7 @@ func TestRefreshTokensRepo_FindActive_MultipleTokens(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()
@@ -175,7 +175,7 @@ func TestRefreshTokensRepo_Create_Duplicate(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(db, 12)
+	repo := NewRefreshTokensRepo(context.Background(), db, 12)
 	ctx := context.Background()
 
 	userID := bson.NewObjectID()

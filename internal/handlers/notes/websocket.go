@@ -24,8 +24,8 @@ const (
 
 // Hub interface for WebSocket management
 type Hub interface {
-	Subscribe(connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func())
-	Unsubscribe(connULID ulid.ULID)
+	Subscribe(ctx context.Context, connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func())
+	Unsubscribe(ctx context.Context, connULID ulid.ULID)
 }
 
 // WebSocketHandlers contains WebSocket-related handlers
@@ -66,9 +66,10 @@ func (h *WebSocketHandlers) WSUpgrade(c *fiber.Ctx) error {
 			})
 		}
 
-		// Store user info in locals for the WebSocket handler
+		// Store user info and context in locals for the WebSocket handler
 		c.Locals("userID", userID.Hex())
 		c.Locals("userEmail", userEmail)
+		c.Locals("parentCtx", c.Context())
 
 		return c.Next()
 	}
@@ -100,15 +101,23 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 	connID := connULID.String()
 
+	// Retrieve parent context from Fiber handler
+	parentCtx, ok := c.Locals("parentCtx").(context.Context)
+	if !ok {
+		logger.L().Error("parentCtx not found in WebSocket context")
+		c.Close()
+		return
+	}
+
+	// Handle incoming messages and outgoing events
+	ctx, cancelCtx := context.WithCancel(parentCtx)
+	defer cancelCtx()
+
 	// Subscribe to events
-	subscriber, cancel := h.hub.Subscribe(connULID, userID)
+	subscriber, cancel := h.hub.Subscribe(ctx, connULID, userID)
 	defer cancel()
 
 	logger.L().Info("WebSocket connection established", "user_id", userID.Hex(), "conn_id", connID)
-
-	// Handle incoming messages and outgoing events
-	ctx, cancelCtx := context.WithCancel(context.Background())
-	defer cancelCtx()
 
 	sessionTimer := time.AfterFunc(time.Duration(h.maxSessionSec)*time.Second, func() {
 		logger.L().Info("WebSocket session timeout", "user_id", userID.Hex(), "conn_id", connID)
