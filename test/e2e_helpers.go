@@ -126,8 +126,17 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 	time.Sleep(2 * time.Second)
 
 	srvCtx, srvCancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(srvCtx, "go", "run", "./cmd/server")
-	cmd.Dir = "../" // project root
+
+	bin := os.Getenv("BIN_SERVER")
+	var cmd *exec.Cmd
+	if bin != "" {
+		// already compiled once in the workflow
+		cmd = exec.CommandContext(srvCtx, bin)
+	} else {
+		// local `go test` fallback
+		cmd = exec.CommandContext(srvCtx, "go", "run", "./cmd/server")
+		cmd.Dir = "../"
+	}
 
 	// Make the wrapper the leader of a new process group
 	// so that we can later send a signal to the whole tree.
@@ -149,7 +158,7 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 	cmd.Stdout = devNull // no extra goroutines, no console spam
 	cmd.Stderr = limitedStderr
 
-	t.Logf("Starting server with MongoDB URI: %s, Port: %s", mongoURI, appPort)
+	t.Logf("Launching server on :%s (binary=%q)", appPort, bin)
 	if err := cmd.Start(); err != nil {
 		srvCancel()
 		return "", nil, nil, nil, err
