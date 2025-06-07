@@ -163,7 +163,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	// Notes routes
 	notesRepo, err := mongo.NewNotesRepo(ctx, mongo.DB())
 	if err != nil {
-		logger.L().Error("failed to create notes repository", "error", err)
+		logger.L().Error(notesServices.ErrCreateNotesRepo.Error(), "error", err)
 		panic(err)
 	}
 	hub := notesServices.NewHub(cfg.WSOutboxBuffer)

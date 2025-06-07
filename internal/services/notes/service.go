@@ -74,8 +74,8 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 	}
 
 	if err := s.repo.Create(ctx, note); err != nil {
-		s.log.Error("failed to create note", "error", err, "user_id", userID.Hex())
-		return nil, errors.New("failed to create note")
+		s.log.Error(ErrCreateNote.Error(), "error", err, "user_id", userID.Hex())
+		return nil, ErrCreateNote
 	}
 
 	s.bus.Broadcast(ctx, NoteEvent{
@@ -100,14 +100,14 @@ func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesR
 		var err error
 		after, err = bson.ObjectIDFromHex(req.Cursor)
 		if err != nil {
-			return nil, errors.New("invalid cursor")
+			return nil, ErrInvalidCursor
 		}
 	}
 
 	notes, err := s.repo.List(ctx, userID, after, limit)
 	if err != nil {
-		s.log.Error("failed to list notes", "error", err, "user_id", userID.Hex())
-		return nil, errors.New("failed to retrieve notes")
+		s.log.Error(ErrListNotes.Error(), "error", err, "user_id", userID.Hex())
+		return nil, ErrListNotes
 	}
 
 	response := &ListNotesResponse{
@@ -132,8 +132,8 @@ func (s *Service) Update(ctx context.Context, userID, noteID bson.ObjectID, req 
 			s.log.Info("note not found for update", "user_id", userID.Hex(), "note_id", noteID.Hex())
 			return nil, ErrNoteNotFound
 		}
-		s.log.Error("failed to update note", "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
-		return nil, errors.New("failed to update note")
+		s.log.Error(ErrUpdateNote.Error(), "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
+		return nil, ErrUpdateNote
 	}
 
 	s.bus.Broadcast(ctx, NoteEvent{
@@ -151,8 +151,8 @@ func (s *Service) Delete(ctx context.Context, userID, noteID bson.ObjectID) erro
 			s.log.Info("note not found for delete", "user_id", userID.Hex(), "note_id", noteID.Hex())
 			return ErrNoteNotFound
 		}
-		s.log.Error("failed to delete note", "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
-		return errors.New("failed to delete note")
+		s.log.Error(ErrDeleteNote.Error(), "error", err, "user_id", userID.Hex(), "note_id", noteID.Hex())
+		return ErrDeleteNote
 	}
 
 	// Broadcast deletion event with minimal note data

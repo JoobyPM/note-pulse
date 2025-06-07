@@ -146,6 +146,9 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name:   "valid config",
 			modify: func(*Config) {},
+			// No-op: baseValidConfig already returns a valid configuration.
+			// Leaving this empty makes the test exercise the happy-path
+			// scenario where Validate should succeed without any mutations.
 		},
 		{
 			name: "invalid port - zero",
