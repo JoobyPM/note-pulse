@@ -16,3 +16,12 @@ var ErrSignOut = errors.New("failed to sign out")
 
 // ErrSignOutAll is returned when sign out all process fails.
 var ErrSignOutAll = errors.New("failed to sign out all devices")
+
+// ErrInvalidCredentials is returned when user provides invalid login credentials.
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
+// ErrRegistrationFailed is returned when user registration fails.
+var ErrRegistrationFailed = errors.New("registration failed")
+
+// ErrUnsupportedJWTAlg is returned when an unsupported JWT algorithm is specified.
+var ErrUnsupportedJWTAlg = errors.New("unsupported JWT algorithm")

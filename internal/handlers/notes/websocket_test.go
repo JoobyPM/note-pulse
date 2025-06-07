@@ -316,7 +316,7 @@ func TestWSSessionTimeout(t *testing.T) {
 	if readMessageErr != nil {
 		// Check if it's a close error with the expected close code
 		if closeErr, ok := err.(*gorillaws.CloseError); ok {
-			assert.Equal(t, 1008, closeErr.Code, "Expected policy violation close code")
+			assert.Equal(t, WSClosePolicyViolation, closeErr.Code, "Expected policy violation close code")
 		}
 
 		// Verify timing - should be close to maxSessionSec

@@ -157,19 +157,13 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 	userIDStr := c.Locals("userID")
 	if userIDStr == nil {
 		logger.L().Warn("missing user ID in token context", "handler", "SignOut")
-		return httperr.Fail(httperr.E{
-			Status:  401,
-			Message: "User not authenticated",
-		})
+		return httperr.Fail(httperr.ErrUserNotAuthenticated)
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr.(string))
 	if err != nil {
 		logger.L().Warn("invalid user ID format", "handler", "SignOut", "userID", userIDStr, "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid user ID",
-		})
+		return httperr.Fail(httperr.ErrInvalidUserID)
 	}
 
 	var req auth.SignOutRequest
@@ -208,27 +202,18 @@ func (h *Handlers) SignOutAll(c *fiber.Ctx) error {
 	userIDStr := c.Locals("userID")
 	if userIDStr == nil {
 		logger.L().Warn("missing user ID in token context", "handler", "SignOutAll")
-		return httperr.Fail(httperr.E{
-			Status:  401,
-			Message: "User not authenticated",
-		})
+		return httperr.Fail(httperr.ErrUserNotAuthenticated)
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr.(string))
 	if err != nil {
 		logger.L().Warn("invalid user ID format", "handler", "SignOutAll", "userID", userIDStr, "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid user ID",
-		})
+		return httperr.Fail(httperr.ErrInvalidUserID)
 	}
 
 	if err := h.authService.SignOutAll(c.Context(), userID); err != nil {
 		logger.L().Error("signout all service failed", "handler", "SignOutAll", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  500,
-			Message: err.Error(),
-		})
+		return httperr.Fail(httperr.InternalError(err.Error()))
 	}
 
 	return c.JSON(map[string]string{"message": "Signed out everywhere"})

@@ -55,8 +55,8 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	case "HS256":
 		// Valid algorithm
 	default:
-		logger.L().Error("unsupported JWT algorithm", "algorithm", cfg.JWTAlgorithm)
-		panic("unsupported JWT algorithm: " + cfg.JWTAlgorithm)
+		logger.L().Error(authServices.ErrUnsupportedJWTAlg.Error(), "algorithm", cfg.JWTAlgorithm)
+		panic(authServices.ErrUnsupportedJWTAlg.Error() + ": " + cfg.JWTAlgorithm)
 	}
 
 	app := fiber.New(fiber.Config{

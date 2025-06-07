@@ -38,12 +38,19 @@ func InvalidInput(err error) error {
 	})
 }
 
+// InternalError returns an internal server error with the given message
+func InternalError(message string) E {
+	return E{Status: 500, Message: message}
+}
+
 // Pre-defined HTTP errors
 var (
-	ErrBadRequest      = E{Status: 400, Message: "Bad Request"}
-	ErrUnauthorized    = E{Status: 401, Message: "Unauthorized"}
-	ErrTooManyRequests = E{Status: 429, Message: "Too Many Requests"}
-	ErrInternal        = E{Status: 500, Message: "Internal Server Error"}
+	ErrBadRequest           = E{Status: 400, Message: "Bad Request"}
+	ErrInvalidUserID        = E{Status: 400, Message: "Invalid user ID"}
+	ErrUnauthorized         = E{Status: 401, Message: "Unauthorized"}
+	ErrUserNotAuthenticated = E{Status: 401, Message: "User not authenticated"}
+	ErrTooManyRequests      = E{Status: 429, Message: "Too Many Requests"}
+	ErrInternal             = InternalError("Internal Server Error")
 )
 
 // Handler is the global error handler for Fiber

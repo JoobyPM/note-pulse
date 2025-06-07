@@ -136,7 +136,7 @@ func TestService_SignUp(t *testing.T) {
 				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
 			},
 			wantErr: true,
-			errMsg:  "registration failed",
+			errMsg:  ErrRegistrationFailed.Error(),
 		},
 		{
 			name: "repository duplicate error",
@@ -149,7 +149,7 @@ func TestService_SignUp(t *testing.T) {
 				repo.On("Create", mock.Anything, mock.AnythingOfType("*auth.User")).Return(ErrDuplicate)
 			},
 			wantErr: true,
-			errMsg:  "registration failed",
+			errMsg:  ErrRegistrationFailed.Error(),
 		},
 	}
 
@@ -271,7 +271,7 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 			name:      "unsupported algorithm",
 			algorithm: "INVALID",
 			wantErr:   true,
-			errMsg:    "unsupported JWT algorithm",
+			errMsg:    ErrUnsupportedJWTAlg.Error(),
 		},
 	}
 
@@ -490,10 +490,10 @@ func TestService_SignIn(t *testing.T) {
 				Password: password,
 			},
 			setup: func(repo *MockUsersRepo) {
-				repo.On("FindByEmail", mock.Anything, "nonexistent@example.com").Return(nil, errors.New("user not found"))
+				repo.On("FindByEmail", mock.Anything, "nonexistent@example.com").Return(nil, ErrUserNotFound)
 			},
 			wantErr: true,
-			errMsg:  "invalid credentials",
+			errMsg:  ErrInvalidCredentials.Error(),
 		},
 		{
 			name: "wrong password",
@@ -510,7 +510,7 @@ func TestService_SignIn(t *testing.T) {
 				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(user, nil)
 			},
 			wantErr: true,
-			errMsg:  "invalid credentials",
+			errMsg:  ErrInvalidCredentials.Error(),
 		},
 	}
 

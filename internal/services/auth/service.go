@@ -74,7 +74,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 	existing, err := s.usersRepo.FindByEmail(ctx, email)
 	if err == nil && existing != nil {
 		s.log.Warn("user already exists", "email", email)
-		return nil, maskDuplicateError()
+		return nil, ErrRegistrationFailed
 	}
 
 	hashedPassword, err := crypto.HashPassword(req.Password, s.config.BcryptCost)
@@ -94,7 +94,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 	if err := s.usersRepo.Create(ctx, user); err != nil {
 		if errors.Is(err, ErrDuplicate) {
 			s.log.Warn("user already exists", "email", email)
-			return nil, maskDuplicateError()
+			return nil, ErrRegistrationFailed
 		}
 		return nil, errors.New("failed to create user")
 	}
@@ -133,12 +133,12 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		} else {
 			s.log.Error("failed to find user by email", "error", err)
 		}
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	if err := crypto.CheckPassword(req.Password, user.PasswordHash); err != nil {
 		s.log.Error("failed to check password", "error", err)
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)
@@ -193,7 +193,7 @@ func (s *Service) GenerateAccessToken(user *User) (string, error) {
 	case "HS256":
 		method = jwt.SigningMethodHS256
 	default:
-		return "", errors.New("unsupported JWT algorithm")
+		return "", ErrUnsupportedJWTAlg
 	}
 
 	return jwt.NewWithClaims(method, claims).SignedString([]byte(s.config.JWTSecret))
@@ -366,8 +366,4 @@ func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client
 	supportsTransactions := hello["setName"] != nil
 	s.log.Debug("checked MongoDB transaction support", "supports_transactions", supportsTransactions)
 	return supportsTransactions
-}
-
-func maskDuplicateError() error {
-	return errors.New("registration failed")
 }
