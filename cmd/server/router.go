@@ -56,6 +56,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 
 	app := fiber.New(fiber.Config{
 		ErrorHandler: httperr.Handler,
+		Immutable:    true, // make Fiber copy all request-derived strings
 	})
 
 	// Global middlewares
