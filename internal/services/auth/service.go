@@ -101,7 +101,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 
 	accessToken, err := s.GenerateAccessToken(user)
 	if err != nil {
-		return nil, errors.New("failed to generate access token")
+		return nil, ErrGenAccessToken
 	}
 
 	refreshToken, err := s.GenerateRefreshToken(user)
@@ -143,8 +143,8 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 
 	accessToken, err := s.GenerateAccessToken(user)
 	if err != nil {
-		s.log.Error("failed to generate access token", "error", err)
-		return nil, errors.New("failed to generate access token")
+		s.log.Error(ErrGenAccessToken.Error(), "error", err)
+		return nil, ErrGenAccessToken
 	}
 
 	refreshToken, err := s.GenerateRefreshToken(user)

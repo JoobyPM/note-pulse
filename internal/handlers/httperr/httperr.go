@@ -30,6 +30,14 @@ func Fail(err E) error {
 	return err
 }
 
+// InvalidInput wraps a validation error and returns the standard response.
+func InvalidInput(err error) error {
+	return Fail(E{
+		Status:  400,
+		Message: "Invalid input: " + err.Error(),
+	})
+}
+
 // Pre-defined HTTP errors
 var (
 	ErrBadRequest      = E{Status: 400, Message: "Bad Request"}

@@ -128,7 +128,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 
 	filter := bson.M{
 		"lookup_hash": lookupHash,
-		"revoked_at":  bson.M{"$exists": false},
+		"revoked_at":  ExistsFalse,
 		"expires_at":  bson.M{"$gt": time.Now().UTC()},
 	}
 
@@ -154,8 +154,8 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 	// Fallback: Use slower O(N) scan for tokens without lookup_hash (backward compatibility)
 	safeLog().Debug("falling back to bcrypt scan for tokens without lookup_hash")
 	fallbackFilter := bson.M{
-		"lookup_hash": bson.M{"$exists": false}, // Only check tokens without lookup_hash
-		"revoked_at":  bson.M{"$exists": false},
+		"lookup_hash": ExistsFalse, // Only check tokens without lookup_hash
+		"revoked_at":  ExistsFalse,
 		"expires_at":  bson.M{"$gt": time.Now().UTC()},
 	}
 
@@ -195,7 +195,7 @@ func (r *RefreshTokensRepo) Revoke(ctx context.Context, id bson.ObjectID) error 
 	// Only revoke tokens that are not already revoked (race-safe)
 	filter := bson.M{
 		"_id":        id,
-		"revoked_at": bson.M{"$exists": false},
+		"revoked_at": ExistsFalse,
 	}
 	update := bson.M{
 		"$set": bson.M{
@@ -223,7 +223,7 @@ func (r *RefreshTokensRepo) Revoke(ctx context.Context, id bson.ObjectID) error 
 func (r *RefreshTokensRepo) RevokeAllForUser(ctx context.Context, userID bson.ObjectID) error {
 	filter := bson.M{
 		"user_id":    userID,
-		"revoked_at": bson.M{"$exists": false},
+		"revoked_at": ExistsFalse,
 	}
 	update := bson.M{
 		"$set": bson.M{

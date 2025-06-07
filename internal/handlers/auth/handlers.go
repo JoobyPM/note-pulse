@@ -54,10 +54,7 @@ func (h *Handlers) SignUp(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(req); err != nil {
 		logger.L().Warn("signup request validation failed", "handler", "SignUp", "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.authService.SignUp(c.Context(), req)
@@ -92,10 +89,7 @@ func (h *Handlers) SignIn(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(req); err != nil {
 		logger.L().Warn("signin request validation failed", "handler", "SignIn", "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.authService.SignIn(c.Context(), req)
@@ -129,10 +123,7 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(&req); err != nil {
 		logger.L().Warn("refresh request validation failed", "handler", "Refresh", "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.authService.Refresh(c.Context(), req.RefreshToken)
@@ -189,10 +180,7 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(&req); err != nil {
 		logger.L().Warn("signout request validation failed", "handler", "SignOut", "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	if err := h.authService.SignOut(c.Context(), userID, req.RefreshToken); err != nil {
