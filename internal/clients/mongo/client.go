@@ -20,7 +20,6 @@ var (
 	initErr      error
 	mu           sync.RWMutex
 	drv          driver = mongoDriver{}
-	supportsTxn  bool
 	txnProbeOnce sync.Once
 )
 
@@ -80,7 +79,7 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 		return nil, nil, fmt.Errorf("mongo ping: %w", pingErr)
 	}
 
-	// Probe transaction support after successful ping
+	// Detect replica-set / txn support after first successful ping
 	txnProbeOnce.Do(func() {
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -89,11 +88,10 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 		err := cli.Database("admin").RunCommand(probeCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
 		if err != nil {
 			log.Warn("failed to probe transaction support, assuming standalone", "err", err)
-			supportsTxn = false
+			isReplicaSet.Store(false)
 		} else {
-			// stand-alone MongoDB has no replica set name
-			supportsTxn = hello["setName"] != nil
-			log.Info("detected MongoDB transaction support", "supports_transactions", supportsTxn)
+			isReplicaSet.Store(hello["setName"] != nil)
+			log.Info("detected MongoDB replica set", "replica_set", IsReplicaSet())
 		}
 	})
 
@@ -125,9 +123,7 @@ func DB() *mongo.Database {
 // SupportsTransactions returns whether the MongoDB instance supports transactions.
 // This is detected during initialization via the "hello" command.
 func SupportsTransactions() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return supportsTxn
+	return IsReplicaSet()
 }
 
 // Shutdown gracefully shuts down the MongoDB connection.

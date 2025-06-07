@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -240,7 +239,7 @@ func TestSignUp_DuplicateEmail(t *testing.T) {
 	mockService.On("SignUp", mock.Anything, auth.SignUpRequest{
 		Email:    "existing@example.com",
 		Password: "Password123",
-	}).Return(nil, errors.New("registration failed")).Once()
+	}).Return(nil, auth.ErrRegistrationFailed).Once()
 
 	body, _ := json.Marshal(map[string]string{
 		"email":    "existing@example.com",
@@ -302,7 +301,7 @@ func TestSignIn_BadCredentials(t *testing.T) {
 	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
 		Email:    "test@example.com",
 		Password: "wrongpassword",
-	}).Return(nil, errors.New("invalid credentials")).Once()
+	}).Return(nil, auth.ErrInvalidCredentials).Once()
 
 	body, _ := json.Marshal(map[string]string{
 		"email":    "test@example.com",

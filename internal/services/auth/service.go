@@ -74,7 +74,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 	existing, err := s.usersRepo.FindByEmail(ctx, email)
 	if err == nil && existing != nil {
 		s.log.Warn("user already exists", "email", email)
-		return nil, maskDuplicateError()
+		return nil, ErrRegistrationFailed
 	}
 
 	hashedPassword, err := crypto.HashPassword(req.Password, s.config.BcryptCost)
@@ -94,25 +94,25 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 	if err := s.usersRepo.Create(ctx, user); err != nil {
 		if errors.Is(err, ErrDuplicate) {
 			s.log.Warn("user already exists", "email", email)
-			return nil, maskDuplicateError()
+			return nil, ErrRegistrationFailed
 		}
 		return nil, errors.New("failed to create user")
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)
 	if err != nil {
-		return nil, errors.New("failed to generate access token")
+		return nil, ErrGenAccessToken
 	}
 
 	refreshToken, err := s.GenerateRefreshToken(user)
 	if err != nil {
-		return nil, errors.New("failed to generate refresh token")
+		return nil, ErrGenRefreshToken
 	}
 
 	refreshExpiresAt := now.Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
-		return nil, errors.New("failed to generate refresh token")
+		return nil, ErrGenRefreshToken
 	}
 
 	return &AuthResponse{
@@ -133,30 +133,30 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		} else {
 			s.log.Error("failed to find user by email", "error", err)
 		}
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	if err := crypto.CheckPassword(req.Password, user.PasswordHash); err != nil {
 		s.log.Error("failed to check password", "error", err)
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)
 	if err != nil {
-		s.log.Error("failed to generate access token", "error", err)
-		return nil, errors.New("failed to generate access token")
+		s.log.Error(ErrGenAccessToken.Error(), "error", err)
+		return nil, ErrGenAccessToken
 	}
 
 	refreshToken, err := s.GenerateRefreshToken(user)
 	if err != nil {
-		s.log.Error("failed to generate refresh token", "error", err)
-		return nil, errors.New("failed to generate refresh token")
+		s.log.Error(ErrGenRefreshToken.Error(), "error", err)
+		return nil, ErrGenRefreshToken
 	}
 
 	refreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 	if err := s.refreshTokenRepo.Create(ctx, user.ID, refreshToken, refreshExpiresAt); err != nil {
 		s.log.Error("failed to store refresh token", "error", err, "user_id", user.ID.Hex())
-		return nil, errors.New("failed to generate refresh token")
+		return nil, ErrGenRefreshToken
 	}
 
 	return &AuthResponse{
@@ -193,7 +193,7 @@ func (s *Service) GenerateAccessToken(user *User) (string, error) {
 	case "HS256":
 		method = jwt.SigningMethodHS256
 	default:
-		return "", errors.New("unsupported JWT algorithm")
+		return "", ErrUnsupportedJWTAlg
 	}
 
 	return jwt.NewWithClaims(method, claims).SignedString([]byte(s.config.JWTSecret))
@@ -204,7 +204,7 @@ func (s *Service) GenerateRefreshToken(user *User) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		s.log.Error("failed to generate random bytes for refresh token", "error", err, "user_id", user.ID.Hex())
-		return "", errors.New("failed to generate refresh token")
+		return "", ErrGenRefreshToken
 	}
 
 	return base64.URLEncoding.EncodeToString(bytes), nil
@@ -240,8 +240,8 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 
 	accessToken, err := s.GenerateAccessToken(user)
 	if err != nil {
-		s.log.Error("failed to generate new access token", "error", err)
-		return nil, errors.New("failed to refresh tokens")
+		s.log.Error(ErrGenAccessToken.Error(), "error", err)
+		return nil, ErrRefreshTokens
 	}
 
 	newRefreshToken := rawRefreshToken // Default: don't rotate
@@ -249,14 +249,12 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 	if s.config.RefreshTokenRotate {
 		newRefreshToken, err = s.GenerateRefreshToken(user)
 		if err != nil {
-			s.log.Error("failed to generate new refresh token", "error", err)
-			return nil, errors.New("failed to refresh tokens")
+			s.log.Error(ErrGenRefreshToken.Error(), "error", err)
+			return nil, ErrRefreshTokens
 		}
 		newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 
-		// Check if MongoDB supports transactions
-		client := s.refreshTokenRepo.Client()
-		supportsTransactions := s.supportsTransactions(ctx, client)
+		supportsTransactions := s.refreshTokenRepo.SupportsTransactions()
 
 		if !supportsTransactions {
 			// Standalone mode - best-effort two-step without transaction
@@ -265,7 +263,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 			// Create new token first
 			if err := s.refreshTokenRepo.Create(ctx, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
 				s.log.Error("failed to store new refresh token in fallback mode", "error", err)
-				return nil, errors.New("failed to refresh tokens")
+				return nil, ErrRefreshTokens
 			}
 
 			// Then revoke old token - log warning on error, don't fail request
@@ -276,10 +274,11 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 			s.log.Debug("fallback refresh token rotation completed", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
 		} else {
 			// Use MongoDB transaction to ensure atomicity (create new -> revoke old)
+			client := s.refreshTokenRepo.Client()
 			sess, err := client.StartSession()
 			if err != nil {
 				s.log.Error("failed to start MongoDB session", "error", err)
-				return nil, errors.New("failed to refresh tokens")
+				return nil, ErrRefreshTokens
 			}
 			defer sess.EndSession(ctx)
 
@@ -301,7 +300,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 
 			if err != nil {
 				s.log.Error("refresh token rotation transaction failed", "error", err)
-				return nil, errors.New("failed to refresh tokens")
+				return nil, ErrRefreshTokens
 			}
 		}
 	}
@@ -322,7 +321,7 @@ func (s *Service) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshT
 			return ErrInvalidRefreshToken
 		}
 		s.log.Error("failed to find refresh token for sign out", "error", err)
-		return errors.New("failed to sign out")
+		return ErrSignOut
 	}
 
 	if refreshToken.UserID != userID {
@@ -332,7 +331,7 @@ func (s *Service) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshT
 
 	if err := s.refreshTokenRepo.Revoke(ctx, refreshToken.ID); err != nil {
 		s.log.Error("failed to revoke refresh token", "error", err, "token_id", refreshToken.ID.Hex())
-		return errors.New("failed to sign out")
+		return ErrSignOut
 	}
 
 	s.log.Info("user signed out successfully", "user_id", userID.Hex())
@@ -343,31 +342,9 @@ func (s *Service) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshT
 func (s *Service) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
 	if err := s.refreshTokenRepo.RevokeAllForUser(ctx, userID); err != nil {
 		s.log.Error("failed to revoke all refresh tokens for user", "error", err, "user_id", userID.Hex())
-		return errors.New("failed to sign out from all devices")
+		return ErrSignOutAll
 	}
 
 	s.log.Info("user signed out from all devices", "user_id", userID.Hex())
 	return nil
-}
-
-// TODO:[perf] this condidate for optimizatin, idea - «Expose a cheap accessor from the mongo client package, e.g. `mongo.SupportsTransactions() bool`, and cache the value there (it is already stored) and just read the cached flag»
-func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	var hello bson.M
-	err := client.Database("admin").RunCommand(probeCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
-	if err != nil {
-		s.log.Warn("failed to probe transaction support, assuming standalone", "err", err)
-		return false
-	}
-
-	// stand-alone MongoDB has no replica set name
-	supportsTransactions := hello["setName"] != nil
-	s.log.Debug("checked MongoDB transaction support", "supports_transactions", supportsTransactions)
-	return supportsTransactions
-}
-
-func maskDuplicateError() error {
-	return errors.New("registration failed")
 }

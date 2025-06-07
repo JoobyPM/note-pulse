@@ -21,18 +21,6 @@ import (
 
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// testServiceStandalone is a test helper that simulates standalone MongoDB
-type testServiceStandalone struct {
-	Service
-}
-
-// supportsTransactions always returns false to simulate standalone MongoDB
-//
-//nolint:unused // Used for polymorphic method override in tests
-func (s *testServiceStandalone) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
-	return false
-}
-
 // MockUsersRepo is a mock implementation of UsersRepo
 type MockUsersRepo struct {
 	mock.Mock
@@ -95,6 +83,11 @@ func (m *MockRefreshTokensRepo) Client() *mongo.Client {
 	return args.Get(0).(*mongo.Client)
 }
 
+func (m *MockRefreshTokensRepo) SupportsTransactions() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
 func TestService_SignUp(t *testing.T) {
 	cfg := config.Config{
 		BcryptCost:   12,
@@ -136,7 +129,7 @@ func TestService_SignUp(t *testing.T) {
 				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
 			},
 			wantErr: true,
-			errMsg:  "registration failed",
+			errMsg:  ErrRegistrationFailed.Error(),
 		},
 		{
 			name: "repository duplicate error",
@@ -149,7 +142,7 @@ func TestService_SignUp(t *testing.T) {
 				repo.On("Create", mock.Anything, mock.AnythingOfType("*auth.User")).Return(ErrDuplicate)
 			},
 			wantErr: true,
-			errMsg:  "registration failed",
+			errMsg:  ErrRegistrationFailed.Error(),
 		},
 	}
 
@@ -218,6 +211,7 @@ func TestService_Refresh_TransactionRollback(t *testing.T) {
 
 		refreshRepo.On("FindActive", mock.Anything, rawToken).Return(existingToken, nil)
 		userRepo.On("FindByID", mock.Anything, userID).Return(user, nil)
+		refreshRepo.On("SupportsTransactions").Return(true)
 		refreshRepo.On("Client").Return((*mongo.Client)(nil))
 
 		service := NewService(userRepo, refreshRepo, cfg, silentLogger)
@@ -271,7 +265,7 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 			name:      "unsupported algorithm",
 			algorithm: "INVALID",
 			wantErr:   true,
-			errMsg:    "unsupported JWT algorithm",
+			errMsg:    ErrUnsupportedJWTAlg.Error(),
 		},
 	}
 
@@ -369,9 +363,6 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 		Email: "test@example.com",
 	}
 
-	// Mock a MongoDB client that will indicate no transaction support
-	mockClient := &mongo.Client{}
-
 	t.Run("standalone MongoDB fallback", func(t *testing.T) {
 		userRepo := new(MockUsersRepo)
 		refreshRepo := new(MockRefreshTokensRepo)
@@ -379,21 +370,14 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 		// Setup mocks for the refresh flow
 		refreshRepo.On("FindActive", mock.Anything, rawToken).Return(existingToken, nil)
 		userRepo.On("FindByID", mock.Anything, userID).Return(user, nil)
-		refreshRepo.On("Client").Return(mockClient)
+		refreshRepo.On("SupportsTransactions").Return(false) // Simulate standalone MongoDB
+		// Note: Client() is NOT called when SupportsTransactions() returns false
 
 		// Expect fallback behavior: create new token, then revoke old token
 		refreshRepo.On("Create", mock.Anything, userID, mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(nil)
 		refreshRepo.On("Revoke", mock.Anything, tokenID).Return(nil)
 
-		// Create a custom service implementation for testing standalone mode
-		service := &testServiceStandalone{
-			Service: Service{
-				usersRepo:        userRepo,
-				refreshTokenRepo: refreshRepo,
-				config:           cfg,
-				log:              silentLogger,
-			},
-		}
+		service := NewService(userRepo, refreshRepo, cfg, silentLogger)
 
 		resp, err := service.Refresh(context.Background(), rawToken)
 
@@ -419,21 +403,14 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 		// Setup mocks for the refresh flow
 		refreshRepo.On("FindActive", mock.Anything, rawToken).Return(existingToken, nil)
 		userRepo.On("FindByID", mock.Anything, userID).Return(user, nil)
-		refreshRepo.On("Client").Return(mockClient)
+		refreshRepo.On("SupportsTransactions").Return(false) // Simulate standalone MongoDB
+		// Note: Client() is NOT called when SupportsTransactions() returns false
 
 		// Create succeeds, but revoke fails - should still return success
 		refreshRepo.On("Create", mock.Anything, userID, mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(nil)
 		refreshRepo.On("Revoke", mock.Anything, tokenID).Return(errors.New("revoke failed"))
 
-		// Create a custom service implementation for testing standalone mode
-		service := &testServiceStandalone{
-			Service: Service{
-				usersRepo:        userRepo,
-				refreshTokenRepo: refreshRepo,
-				config:           cfg,
-				log:              silentLogger,
-			},
-		}
+		service := NewService(userRepo, refreshRepo, cfg, silentLogger)
 
 		resp, err := service.Refresh(context.Background(), rawToken)
 
@@ -490,10 +467,10 @@ func TestService_SignIn(t *testing.T) {
 				Password: password,
 			},
 			setup: func(repo *MockUsersRepo) {
-				repo.On("FindByEmail", mock.Anything, "nonexistent@example.com").Return(nil, errors.New("user not found"))
+				repo.On("FindByEmail", mock.Anything, "nonexistent@example.com").Return(nil, ErrUserNotFound)
 			},
 			wantErr: true,
-			errMsg:  "invalid credentials",
+			errMsg:  ErrInvalidCredentials.Error(),
 		},
 		{
 			name: "wrong password",
@@ -510,7 +487,7 @@ func TestService_SignIn(t *testing.T) {
 				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(user, nil)
 			},
 			wantErr: true,
-			errMsg:  "invalid credentials",
+			errMsg:  ErrInvalidCredentials.Error(),
 		},
 	}
 

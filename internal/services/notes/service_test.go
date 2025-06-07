@@ -90,7 +90,7 @@ func TestService_Create(t *testing.T) {
 				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New("db error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to create note",
+			errMsg:  ErrCreateNote.Error(),
 		},
 	}
 
@@ -201,7 +201,7 @@ func TestService_List(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid cursor",
+			name: ErrInvalidCursor.Error(),
 			req: ListNotesRequest{
 				Cursor: "invalid-cursor",
 			},
@@ -209,7 +209,7 @@ func TestService_List(t *testing.T) {
 				// No repo calls expected due to invalid cursor
 			},
 			wantErr: true,
-			errMsg:  "invalid cursor",
+			errMsg:  ErrInvalidCursor.Error(),
 		},
 		{
 			name: "repository error",
@@ -218,7 +218,7 @@ func TestService_List(t *testing.T) {
 				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to retrieve notes",
+			errMsg:  ErrListNotes.Error(),
 		},
 	}
 
@@ -309,7 +309,7 @@ func TestService_Update(t *testing.T) {
 				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to update note",
+			errMsg:  ErrUpdateNote.Error(),
 		},
 	}
 
@@ -375,7 +375,7 @@ func TestService_Delete(t *testing.T) {
 				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("db error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to delete note",
+			errMsg:  ErrDeleteNote.Error(),
 		},
 	}
 

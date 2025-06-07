@@ -83,10 +83,7 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(req); err != nil {
 		logger.L().Warn("create note request validation failed", "handler", "Create", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.notesService.Create(c.Context(), userID, req)
@@ -127,10 +124,7 @@ func (h *Handlers) List(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(req); err != nil {
 		logger.L().Warn("list notes request validation failed", "handler", "List", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.notesService.List(c.Context(), userID, req)
@@ -189,10 +183,7 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 
 	if err := h.validator.Struct(req); err != nil {
 		logger.L().Warn("update note request validation failed", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: "Invalid input: " + err.Error(),
-		})
+		return httperr.InvalidInput(err)
 	}
 
 	resp, err := h.notesService.Update(c.Context(), userID, noteID, req)
