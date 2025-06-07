@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
+	"note-pulse/cmd/server/handlers"
+	"note-pulse/cmd/server/middlewares"
 	"note-pulse/internal/clients/mongo"
 	"note-pulse/internal/config"
 	authHandlers "note-pulse/internal/handlers/auth"
@@ -19,8 +20,6 @@ import (
 	_ "note-pulse/docs" // Load swagger docs
 
 	"github.com/go-playground/validator/v10"
-	"github.com/gofiber/adaptor/v2"
-	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -28,10 +27,6 @@ import (
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 const (
@@ -71,33 +66,11 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	}))
 
 	if cfg.RouteMetricsEnabled {
-		registerPrometheus(app)
+		middlewares.AttachMetrics(app)
 	}
 
 	// Health check endpoint, outside versioned API to appease scanners and to avoid logging
-	app.Get("/healthz", func(c *fiber.Ctx) error {
-		ctx, cancel := context.WithTimeout(c.UserContext(), HealthzTimeout)
-		defer cancel()
-
-		db := mongo.DB()
-		if db == nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"status": "down",
-				"error":  "database not initialized",
-			})
-		}
-
-		if err := db.Client().Ping(ctx, readpref.Primary()); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"status": "down",
-				"error":  err.Error(),
-			})
-		}
-
-		return c.JSON(fiber.Map{
-			"status": "ok",
-		})
-	})
+	app.Get("/healthz", handlers.Healthz)
 
 	app.Get("/docs/*", swagger.HandlerDefault)
 
@@ -110,34 +83,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 		logger.L().Info("request logging disabled")
 	}
 
-	jwtMiddleware := jwtware.New(jwtware.Config{
-		SigningKey: jwtware.SigningKey{Key: []byte(cfg.JWTSecret)},
-		SuccessHandler: func(c *fiber.Ctx) error {
-			// Extract claims from token
-			token := c.Locals("user").(*jwt.Token)
-			claims := token.Claims.(jwt.MapClaims)
-
-			userID, ok := claims["user_id"].(string)
-			if !ok {
-				return httperr.Fail(httperr.E{
-					Status:  401,
-					Message: "Invalid token: missing user_id",
-				})
-			}
-
-			userEmail, ok := claims["email"].(string)
-			if !ok {
-				return httperr.Fail(httperr.E{
-					Status:  401,
-					Message: "Invalid token: missing email",
-				})
-			}
-
-			c.Locals("userID", userID)
-			c.Locals("userEmail", userEmail)
-			return c.Next()
-		},
-	})
+	jwtMiddleware := middlewares.JWT(cfg)
 
 	limiterMW := limiter.New(limiter.Config{
 		Max:        cfg.SignInRatePerMin,
@@ -182,81 +128,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	app.Get("/ws/notes/stream", wsHandlers.WSUpgrade, websocket.New(wsHandlers.WSNotesStream))
 
 	// User profile endpoint (for testing JWT middleware and for future use)
-	v1.Get("/me", jwtMiddleware, me)
+	v1.Get("/me", jwtMiddleware, handlers.Me)
 
 	return app
-}
-
-// @Summary Get current user
-// @Description Get current user information
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Success 200 {object} map[string]string
-// @Router /me [get]
-func me(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(string)
-	userEmail := c.Locals("userEmail").(string)
-	return c.JSON(fiber.Map{
-		"uid":   userID,
-		"email": userEmail,
-	})
-}
-
-// normalizeRoutePath returns the route template to prevent high cardinality
-// in metrics labels. Returns the actual path for unmatched routes (404s).
-func normalizeRoutePath(c *fiber.Ctx) string {
-	if route := c.Route(); route != nil {
-		return route.Path // already the template (e.g., "/notes/:id")
-	}
-	return c.Path() // fallback for 404 etc.
-}
-
-// normalizeStatus returns the status code as a string for Prometheus metrics
-// 2xx -> "2xx", 4xx -> "4xx", 5xx -> "5xx"
-func normalizeStatus(status int) string {
-	if status >= 200 && status < 300 {
-		return "2xx"
-	} else if status >= 400 && status < 500 {
-		return "4xx"
-	} else if status >= 500 && status < 600 {
-		return "5xx"
-	}
-	return strconv.Itoa(status)
-}
-
-func registerPrometheus(app *fiber.App) {
-	httpRequestDuration := prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "http_request_duration_seconds",
-			Help:    "Duration of HTTP requests in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"method", "path", "status"},
-	)
-	httpRequestsTotal := prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "http_requests_total",
-			Help: "Total number of HTTP requests",
-		},
-		[]string{"method", "path", "status"},
-	)
-	prometheus.MustRegister(httpRequestDuration, httpRequestsTotal)
-
-	app.Use(func(c *fiber.Ctx) error {
-		start := time.Now().UTC()
-		err := c.Next()
-		duration := time.Since(start).Seconds()
-		method := c.Method()
-		path := normalizeRoutePath(c)
-		status := c.Response().StatusCode()
-		statusStr := normalizeStatus(status)
-		httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
-		httpRequestsTotal.WithLabelValues(method, path, statusStr).Inc()
-		return err
-	})
-
-	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
-	logger.L().Info("Prometheus metrics enabled")
 }

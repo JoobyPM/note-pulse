@@ -1,6 +1,9 @@
 package auth
 
-import "errors"
+import (
+	"errors"
+	"note-pulse/internal/handlers/httperr"
+)
 
 // ErrGenAccessToken is returned when we cannot create a JWT.
 var ErrGenAccessToken = errors.New("failed to generate access token")
@@ -25,3 +28,23 @@ var ErrRegistrationFailed = errors.New("registration failed")
 
 // ErrUnsupportedJWTAlg is returned when an unsupported JWT algorithm is specified.
 var ErrUnsupportedJWTAlg = errors.New("unsupported JWT algorithm")
+
+// ErrInvalidTokenMissingUserID is returned when a token is invalid.
+var ErrInvalidTokenMissingUserID = httperr.Fail(httperr.E{
+	Status:  401,
+	Message: "Invalid token: missing user_id",
+})
+
+// ErrInvalidTokenMissingEmail is returned when a token is invalid.
+var ErrInvalidTokenMissingEmail = httperr.Fail(httperr.E{
+	Status:  401,
+	Message: "Invalid token: missing email",
+})
+
+// ErrUnauthorized is returned when a user is unauthorized.
+var ErrUnauthorized = func(err error) error {
+	return httperr.Fail(httperr.E{
+		Status:  401,
+		Message: "Unauthorized: " + err.Error(),
+	})
+}
