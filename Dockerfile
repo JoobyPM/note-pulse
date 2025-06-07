@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.24.2-alpine AS builder
+FROM ghcr.io/joobypm/note-pulse-builder:latest AS builder
 
 # Install git for version info
 RUN apk add --no-cache git bash
@@ -16,7 +16,6 @@ RUN go mod download
 COPY . .
 
 
-RUN go install github.com/swaggo/swag/cmd/swag@v1.16.4
 RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
 
 # Build the application using shared build script

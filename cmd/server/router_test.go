@@ -37,6 +37,7 @@ func TestRequestLoggingConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			defer func() {
 				_ = os.Unsetenv("REQUEST_LOGGING_ENABLED")
+				_ = os.Unsetenv("DEV_MODE")
 				config.ResetCache()
 			}()
 
@@ -44,6 +45,10 @@ func TestRequestLoggingConfig(t *testing.T) {
 				err := os.Setenv("REQUEST_LOGGING_ENABLED", tt.envValue)
 				require.NoError(t, err)
 			}
+
+			// Set DEV_MODE=true to bypass JWT_SECRET requirement for tests
+			err := os.Setenv("DEV_MODE", "true")
+			require.NoError(t, err)
 
 			config.ResetCache()
 

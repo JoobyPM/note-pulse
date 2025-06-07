@@ -49,6 +49,7 @@ format:
 install-tools:         ## install required tools (golangci-lint,swag)
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	go install github.com/swaggo/swag/cmd/swag@v1.16.4
+	go install golang.org/x/tools/cmd/goimports@v0.34.0
 
 check: tidy swagger format vet lint test build e2e-check
 
@@ -78,7 +79,9 @@ e2e-clean:
 # ------------------------------------------------------------
 e2e-bench: e2e-clean
 	@echo "▶ starting benchmark stack"
-	docker compose -p $(BENCH_PROJECT) $(BENCH_COMPOSE) \
+	@export $$(cat .env.bench | grep -v '^#' | grep -v '^$$' | xargs) && \
+	ENV_FILE=.env.bench docker compose -p $(BENCH_PROJECT) $(BENCH_COMPOSE) \
+		--env-file .env.bench \
 		--profile loadtest \
 		up --abort-on-container-exit \
 		--build \
@@ -86,6 +89,7 @@ e2e-bench: e2e-clean
 		--always-recreate-deps \
 		k6
 	$(MAKE) k6-report
+	$(MAKE) e2e-clean
 	@echo "✔ benchmark finished"
 
 # ------------------------------------------------------------
@@ -100,3 +104,8 @@ k6-report:
 ## ---------- swagger spec ---------------------------------------------
 swagger:               ## fresh OpenAPI JSON/YAML
 	swag init -g ./docs/swagger.go --parseDependency --parseInternal --output ./docs/openapi
+
+dev: scripts/gen-dev-env.sh ## start development environment with auto-generated secrets
+	@./scripts/gen-dev-env.sh
+	docker compose up -d --build
+	docker compose logs -f server

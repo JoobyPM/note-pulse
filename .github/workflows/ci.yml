@@ -1,0 +1,96 @@
+# .github/workflows/ci.yml
+#
+# CI for Note-Pulse
+# ───────────────────────────────────────────────────────────
+# 1. Lint + unit + E2E tests   (builder image + Testcontainers + DinD)
+# 2. Build distroless image    (Ubuntu runner)
+# 3. Smoke-test with compose   (ping /healthz)
+# -------------------------------------------------------------------
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GOFLAGS: -buildvcs=false
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  COMPOSE_BAKE: true
+
+  # ─── secrets fall-backs for forks / cron ───────────────────────────
+  MONGO_INITDB_ROOT_PASSWORD: ${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  DEFAULTS_SET: |
+    echo "JWT_SECRET=$(openssl rand -hex 24)"   >> "$GITHUB_ENV"
+    echo "MONGO_INITDB_ROOT_PASSWORD=example"   >> "$GITHUB_ENV"
+
+# ───────────────────────────── tests ────────────────────────────────
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # All job steps run inside the reusable builder image
+    container:
+      image: ghcr.io/joobypm/note-pulse-builder:latest
+      options: --user 0 # root still useful for Testcontainers / ip-tables
+
+    # Docker-in-Docker side-car → the daemon that Testcontainers will use
+    services:
+      docker:
+        image: docker:dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        ports:
+          - 2375:2375
+        options: >-
+          --privileged
+          --health-cmd       "docker info >/dev/null 2>&1"
+          --health-interval  2s
+          --health-timeout   30s
+          --health-retries   15
+
+    steps:
+      # -----------------------------------------------------------------
+      - name: Default secrets for forks / schedule
+        if: ${{ env.JWT_SECRET == '' }}
+        run: ${{ env.DEFAULTS_SET }}
+
+      - uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # Go setup with built-in module and build cache
+      # -----------------------------------------------------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # -----------------------------------------------------------------
+      - name: Build server binary
+        run: make bin/server
+
+      - name: Expose BIN_SERVER for tests
+        run: echo "BIN_SERVER=$(pwd)/bin/server" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------
+      - name: Format / vet / lint / unit tests
+        run: make tidy format vet lint test
+
+      # -----------------------------------------------------------------
+      - name: End-to-end tests (Testcontainers)
+        run: |
+          # Use the DinD daemon only for the Go tests we launch here
+          export DOCKER_HOST=tcp://localhost:2375
+
+          # Give the server a guaranteed 32-byte secret so config.Load() is happy
+          export JWT_SECRET=test-e2e-secret-with-32-plus-characters
+          export JWT_ALGORITHM=HS256      # explicit, though HS256 is default
+          export DEV_MODE=true            # relaxs other prod-only checks
+
+          make e2e

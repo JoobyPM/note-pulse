@@ -30,6 +30,7 @@ type Config struct {
 	PyroscopeEnabled      bool   `mapstructure:"PYROSCOPE_ENABLED"`
 	PyroscopeServerAddr   string `mapstructure:"PYROSCOPE_SERVER_ADDR"`
 	PyroscopeAppName      string `mapstructure:"PYROSCOPE_APP_NAME"`
+	DevMode               bool   `mapstructure:"DEV_MODE"`
 }
 
 var (
@@ -65,7 +66,7 @@ func Load() (Config, error) {
 	v.SetDefault("LOG_FORMAT", "json")
 	v.SetDefault("MONGO_URI", "mongodb://mongo:27017")
 	v.SetDefault("MONGO_DB_NAME", "notepulse")
-	v.SetDefault("JWT_SECRET", "this-is-a-default-jwt-secret-key-with-32-plus-characters")
+	v.SetDefault("DEV_MODE", false)
 	v.SetDefault("JWT_ALGORITHM", "HS256")
 	v.SetDefault("WS_MAX_SESSION_SEC", 900)
 	v.SetDefault("ACCESS_TOKEN_MINUTES", 15)
@@ -122,8 +123,14 @@ func ResetCache() {
 
 // Validate checks if required configuration fields are properly set
 func (c Config) Validate() error {
-	if c.AppPort <= 0 {
-		return errors.New("APP_PORT must be greater than 0")
+	if c.JWTSecret == "" && !c.DevMode {
+		return errors.New("JWT_SECRET is required (see .env.template)")
+	}
+	if len(c.JWTSecret) < 32 && !c.DevMode {
+		return errors.New("JWT_SECRET must be ≥32 chars")
+	}
+	if c.AppPort <= 0 || c.AppPort > 65535 {
+		return errors.New("APP_PORT must be between 1 and 65535")
 	}
 	if c.BcryptCost < 8 || c.BcryptCost > 16 {
 		return errors.New("BCRYPT_COST must be between 8 and 16")
@@ -142,12 +149,6 @@ func (c Config) Validate() error {
 	}
 	if c.MongoDBName == "" {
 		return errors.New("MONGO_DB_NAME cannot be empty")
-	}
-	if c.JWTSecret == "" {
-		return errors.New("JWT_SECRET cannot be empty")
-	}
-	if c.JWTAlgorithm == "HS256" && len(c.JWTSecret) < 32 {
-		return errors.New("JWT_SECRET must be at least 32 characters for HS256")
 	}
 	if c.WSMaxSessionSec <= 0 {
 		return errors.New("WS_MAX_SESSION_SEC must be greater than 0")

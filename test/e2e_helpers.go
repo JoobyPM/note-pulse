@@ -33,15 +33,20 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	if lw.n >= lw.limit {
 		// Still drain the data so the pipe can't fill, but signal "written"
 		lw.n += int64(len(p))
-		return len(p), nil
+		return 0, io.ErrShortWrite
 	}
-	remaining := lw.limit - lw.n
-	if int64(len(p)) > remaining {
-		p = p[:remaining]
+
+	want := len(p)
+	if remain := lw.limit - lw.n; int64(want) > remain {
+		p = p[:remain]
 	}
+
 	n, err := lw.w.Write(p)
 	lw.n += int64(n)
-	return len(p), err // Return original length to satisfy interface
+	if int64(want) > int64(n) && err == nil {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 // TestEnvironment holds the test infrastructure
@@ -121,8 +126,17 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 	time.Sleep(2 * time.Second)
 
 	srvCtx, srvCancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(srvCtx, "go", "run", "./cmd/server")
-	cmd.Dir = "../" // project root
+
+	bin := os.Getenv("BIN_SERVER")
+	var cmd *exec.Cmd
+	if bin != "" {
+		// already compiled once in the workflow
+		cmd = exec.CommandContext(srvCtx, bin)
+	} else {
+		// local `go test` fallback
+		cmd = exec.CommandContext(srvCtx, "go", "run", "./cmd/server")
+		cmd.Dir = "../"
+	}
 
 	// Make the wrapper the leader of a new process group
 	// so that we can later send a signal to the whole tree.
@@ -140,11 +154,11 @@ func startServerWithEnv(ctx context.Context, t *testing.T, mongoURI string, extr
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	cmd.Env = append(os.Environ(), envVars...)
+	cmd.Env = append(envVars, os.Environ()...)
 	cmd.Stdout = devNull // no extra goroutines, no console spam
 	cmd.Stderr = limitedStderr
 
-	t.Logf("Starting server with MongoDB URI: %s, Port: %s", mongoURI, appPort)
+	t.Logf("Launching server on :%s (binary=%q)", appPort, bin)
 	if err := cmd.Start(); err != nil {
 		srvCancel()
 		return "", nil, nil, nil, err
