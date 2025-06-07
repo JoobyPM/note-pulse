@@ -254,9 +254,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 		}
 		newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
 
-		// Check if MongoDB supports transactions
-		client := s.refreshTokenRepo.Client()
-		supportsTransactions := s.supportsTransactions(ctx, client)
+		supportsTransactions := s.refreshTokenRepo.SupportsTransactions()
 
 		if !supportsTransactions {
 			// Standalone mode - best-effort two-step without transaction
@@ -276,6 +274,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 			s.log.Debug("fallback refresh token rotation completed", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
 		} else {
 			// Use MongoDB transaction to ensure atomicity (create new -> revoke old)
+			client := s.refreshTokenRepo.Client()
 			sess, err := client.StartSession()
 			if err != nil {
 				s.log.Error("failed to start MongoDB session", "error", err)
@@ -348,22 +347,4 @@ func (s *Service) SignOutAll(ctx context.Context, userID bson.ObjectID) error {
 
 	s.log.Info("user signed out from all devices", "user_id", userID.Hex())
 	return nil
-}
-
-// TODO:[perf] this condidate for optimizatin, idea - «Expose a cheap accessor from the mongo client package, e.g. `mongo.SupportsTransactions() bool`, and cache the value there (it is already stored) and just read the cached flag»
-func (s *Service) supportsTransactions(ctx context.Context, client *mongo.Client) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	var hello bson.M
-	err := client.Database("admin").RunCommand(probeCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
-	if err != nil {
-		s.log.Warn("failed to probe transaction support, assuming standalone", "err", err)
-		return false
-	}
-
-	// stand-alone MongoDB has no replica set name
-	supportsTransactions := hello["setName"] != nil
-	s.log.Debug("checked MongoDB transaction support", "supports_transactions", supportsTransactions)
-	return supportsTransactions
 }

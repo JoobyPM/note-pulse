@@ -35,6 +35,9 @@ type RefreshTokensRepo interface {
 
 	// Client returns the MongoDB client for transaction support
 	Client() *mongo.Client
+
+	// SupportsTransactions returns whether the MongoDB instance supports transactions
+	SupportsTransactions() bool
 }
 
 // RefreshToken represents a refresh token document

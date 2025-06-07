@@ -120,6 +120,11 @@ func (r *RefreshTokensRepo) Client() *mongo.Client {
 	return r.collection.Database().Client()
 }
 
+// SupportsTransactions returns whether the MongoDB instance supports transactions
+func (r *RefreshTokensRepo) SupportsTransactions() bool {
+	return IsReplicaSet()
+}
+
 // FindActive finds an active (non-revoked, non-expired) refresh token by raw token
 func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*auth.RefreshToken, error) {
 	// First try: Fast O(1) lookup using lookup_hash (for new tokens)
