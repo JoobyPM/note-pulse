@@ -213,6 +213,19 @@ func normalizeRoutePath(c *fiber.Ctx) string {
 	return c.Path() // fallback for 404 etc.
 }
 
+// normalizeStatus returns the status code as a string for Prometheus metrics
+// 2xx -> "2xx", 4xx -> "4xx", 5xx -> "5xx"
+func normalizeStatus(status int) string {
+	if status >= 200 && status < 300 {
+		return "2xx"
+	} else if status >= 400 && status < 500 {
+		return "4xx"
+	} else if status >= 500 && status < 600 {
+		return "5xx"
+	}
+	return strconv.Itoa(status)
+}
+
 func registerPrometheus(app *fiber.App) {
 	httpRequestDuration := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -238,7 +251,7 @@ func registerPrometheus(app *fiber.App) {
 		method := c.Method()
 		path := normalizeRoutePath(c)
 		status := c.Response().StatusCode()
-		statusStr := strconv.Itoa(status)
+		statusStr := normalizeStatus(status)
 		httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
 		httpRequestsTotal.WithLabelValues(method, path, statusStr).Inc()
 		return err
