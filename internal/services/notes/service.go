@@ -50,6 +50,8 @@ type NoteResponse struct {
 	Note *Note `json:"note"`
 }
 
+// TODO: [pagination] add `has_more` field to the response
+// TODO: [pagination] add `total_count` field to the response
 // ListNotesResponse represents a list of notes response
 type ListNotesResponse struct {
 	Notes      []*Note `json:"notes"`

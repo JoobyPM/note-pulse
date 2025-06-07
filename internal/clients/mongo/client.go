@@ -38,7 +38,6 @@ func Init(ctx context.Context, cfg config.Config, log *slog.Logger) (*mongo.Clie
 		SetConnectTimeout(10 * time.Second).
 		SetAppName("note-pulse")
 
-
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
