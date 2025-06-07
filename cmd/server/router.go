@@ -204,6 +204,15 @@ func me(c *fiber.Ctx) error {
 	})
 }
 
+// normalizeRoutePath returns the route template to prevent high cardinality
+// in metrics labels. Returns the actual path for unmatched routes (404s).
+func normalizeRoutePath(c *fiber.Ctx) string {
+	if route := c.Route(); route != nil {
+		return route.Path // already the template (e.g., "/notes/:id")
+	}
+	return c.Path() // fallback for 404 etc.
+}
+
 func registerPrometheus(app *fiber.App) {
 	httpRequestDuration := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -227,7 +236,7 @@ func registerPrometheus(app *fiber.App) {
 		err := c.Next()
 		duration := time.Since(start).Seconds()
 		method := c.Method()
-		path := c.Route().Path
+		path := normalizeRoutePath(c)
 		status := c.Response().StatusCode()
 		statusStr := strconv.Itoa(status)
 		httpRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
