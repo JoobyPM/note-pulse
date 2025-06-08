@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -347,6 +348,7 @@ func testAdvancedListingFeatures(t *testing.T, env *TestEnvironment, _ map[strin
 	// Use a separate user for this test to ensure isolation
 	advancedTestToken := setupTestUser(t, env, "advancedtest@example.com", "Password123")
 	advancedHeaders := getAuthHeaders(t, advancedTestToken)
+
 	// Create test notes with different colors and content
 	redNote1 := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
 		Title: "Meeting Notes",
@@ -366,127 +368,74 @@ func testAdvancedListingFeatures(t *testing.T, env *TestEnvironment, _ map[strin
 		Color: "#0000FF", // Blue color instead of red
 	})
 
-	// Test color filter - should return 2 red notes
-	t.Run("color_filter", func(t *testing.T) {
-		url := env.BaseURL + notesPath + "?color=%23FF0000"
-		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
+	// table-driven sub-tests cut duplicate logic
+	cases := []struct {
+		name       string
+		query      string
+		assertions func(resp map[string]any)
+	}{
+		{
+			"color_filter",
+			"?color=%23FF0000",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 2, "should find 2 red notes")
+				assert.False(t, resp["has_more"].(bool))
+				assert.Equal(t, float64(2), resp["total_count"].(float64))
+				for _, n := range notes {
+					assert.Equal(t, testColor, n.(map[string]any)["color"])
+				}
+			},
+		},
+		{
+			"search_functionality",
+			"?q=meeting",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 2, "should find 2 notes containing 'meeting'")
+				for _, n := range notes {
+					m := n.(map[string]any)
+					content := m["title"].(string) + " " + m["body"].(string)
+					assert.True(t, strings.Contains(strings.ToLower(content), "meeting"))
+				}
+			},
+		},
+		{
+			"sort_by_title_asc",
+			"?sort=title&order=asc",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.GreaterOrEqual(t, len(notes), 3)
+				assert.Equal(t, "Meeting Notes", notes[0].(map[string]any)["title"])
+			},
+		},
+		{
+			"combined_filters_and_metadata",
+			"?color=%23FF0000&q=meeting&sort=title&order=desc&limit=1",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 1)
+				assert.True(t, resp["has_more"].(bool))
+				assert.NotEmpty(t, resp["next_cursor"])
+				n := notes[0].(map[string]any)
+				assert.Equal(t, testColor, n["color"])
+				content := n["title"].(string) + " " + n["body"].(string)
+				assert.True(t, strings.Contains(strings.ToLower(content), "meeting"))
+			},
+		},
+	}
 
-		notes := resp["notes"].([]any)
-		assert.Len(t, notes, 2, "should find 2 red notes")
-
-		// Check response includes pagination metadata
-		assert.Contains(t, resp, "has_more")
-		assert.Contains(t, resp, "total_count")
-		assert.False(t, resp["has_more"].(bool))
-		assert.Equal(t, float64(2), resp["total_count"].(float64))
-
-		// Verify all returned notes are red
-		for _, note := range notes {
-			noteMap := note.(map[string]any)
-			assert.Equal(t, testColor, noteMap["color"])
-		}
-	})
-
-	// Test search functionality - should find notes containing "meeting"
-	t.Run("search_functionality", func(t *testing.T) {
-		url := env.BaseURL + notesPath + "?q=meeting"
-		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
-
-		notes := resp["notes"].([]any)
-		assert.Len(t, notes, 2, "should find 2 notes containing 'meeting'")
-
-		// Verify search results contain the search term
-		for _, note := range notes {
-			noteMap := note.(map[string]any)
-			title := noteMap["title"].(string)
-			body := noteMap["body"].(string)
-
-			// Should contain "meeting" or "Meeting" in title or body
-			containsInTitle := contains(title, "meeting") || contains(title, "Meeting")
-			containsInBody := contains(body, "meeting") || contains(body, "Meeting")
-			assert.True(t, containsInTitle || containsInBody,
-				"note should contain 'meeting' in title or body")
-		}
-	})
-
-	// Test sorting by title ascending - should return notes alphabetically
-	t.Run("sort_by_title_asc", func(t *testing.T) {
-		url := env.BaseURL + notesPath + "?sort=title&order=asc"
-		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
-
-		notes := resp["notes"].([]any)
-		assert.GreaterOrEqual(t, len(notes), 3, "should have at least 3 notes")
-
-		// Verify first note has alphabetically smallest title among our test notes
-		firstNote := notes[0].(map[string]any)
-		title := firstNote["title"].(string)
-
-		// Among our test notes, "Meeting Notes" should come first alphabetically
-		assert.Equal(t, "Meeting Notes", title, "first note should be 'Meeting Notes' when sorted by title asc")
-	})
-
-	// Test combined filters and pagination metadata
-	t.Run("combined_filters_and_metadata", func(t *testing.T) {
-		url := env.BaseURL + notesPath + "?color=%23FF0000&q=meeting&sort=title&order=desc&limit=1"
-		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
-
-		notes := resp["notes"].([]any)
-		assert.Len(t, notes, 1, "should return 1 note with combined filters")
-
-		// Should have pagination metadata
-		assert.True(t, resp["has_more"].(bool), "should indicate more results available")
-		assert.NotEmpty(t, resp["next_cursor"], "should provide next cursor")
-
-		// Should be a red note containing "meeting"
-		note := notes[0].(map[string]any)
-		assert.Equal(t, testColor, note["color"])
-		title := note["title"].(string)
-		body := note["body"].(string)
-		containsInTitle := contains(title, "meeting") || contains(title, "Meeting")
-		containsInBody := contains(body, "meeting") || contains(body, "Meeting")
-		assert.True(t, containsInTitle || containsInBody)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := makeHTTPRequest(t, "GET", env.BaseURL+notesPath+c.query, nil, advancedHeaders, http.StatusOK)
+			c.assertions(resp)
+		})
+	}
 
 	// Clean up test notes
-	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+redNote1, nil, advancedHeaders, http.StatusNoContent)
-	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+redNote2, nil, advancedHeaders, http.StatusNoContent)
-	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+blueNote, nil, advancedHeaders, http.StatusNoContent)
-}
-
-// contains is a helper function to check if a string contains a substring (case-insensitive)
-func contains(str, substr string) bool {
-	return len(str) >= len(substr) &&
-		(str == substr ||
-			(len(str) > len(substr) &&
-				containsHelper(str, substr)))
-}
-
-func containsHelper(str, substr string) bool {
-	for i := 0; i <= len(str)-len(substr); i++ {
-		if equalIgnoreCase(str[i:i+len(substr)], substr) {
-			return true
-		}
+	for _, id := range []string{redNote1, redNote2, blueNote} {
+		makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+id, nil, advancedHeaders, http.StatusNoContent)
 	}
-	return false
-}
-
-func equalIgnoreCase(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range len(a) {
-		ca, cb := a[i], b[i]
-		if ca >= 'A' && ca <= 'Z' {
-			ca += 'a' - 'A'
-		}
-		if cb >= 'A' && cb <= 'Z' {
-			cb += 'a' - 'A'
-		}
-		if ca != cb {
-			return false
-		}
-	}
-	return true
 }
 
 // testCompoundIndexesExist verifies that the required compound indexes are created
@@ -547,12 +496,26 @@ func testCompoundIndexesExist(t *testing.T, _ *TestEnvironment) {
 	}
 }
 
-// testTitlePaginationCursor tests title-based pagination with composite cursors
-func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]string) {
-	dateNote := "Date Note"
+func getFirstTwoNotes(t *testing.T, url string, titleHeaders map[string]string) (map[string]any, map[string]any, map[string]any) {
 	shouldReturn2Notes := "should return 2 notes"
 	shouldHaveMorePages := "should have more pages"
 	shouldHaveNextCursor := "should have next cursor"
+	resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+
+	respNotes := resp["notes"].([]any)
+	assert.Len(t, respNotes, 2, shouldReturn2Notes)
+	assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
+	assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+
+	firstNote := respNotes[0].(map[string]any)
+	secondNote := respNotes[1].(map[string]any)
+
+	return resp, firstNote, secondNote
+}
+
+// testTitlePaginationCursor tests title-based pagination with composite cursors
+func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]string) {
+	dateNote := "Date Note"
 
 	// Use a separate user for this test to ensure isolation
 	titleTestToken := setupTestUser(t, env, "titletest@example.com", "Password123")
@@ -575,16 +538,9 @@ func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]
 	// Test first page with title sorting (ascending)
 	t.Run("first_page_title_asc", func(t *testing.T) {
 		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=2"
-		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
-
-		respNotes := resp["notes"].([]any)
-		assert.Len(t, respNotes, 2, shouldReturn2Notes)
-		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
-		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
 
 		// First two notes should be "Apple Note" and "Banana Note"
-		firstNote := respNotes[0].(map[string]any)
-		secondNote := respNotes[1].(map[string]any)
 		assert.Equal(t, "Apple Note", firstNote["title"])
 		assert.Equal(t, "Banana Note", secondNote["title"])
 	})
@@ -599,16 +555,9 @@ func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]
 
 		// Use cursor for second page
 		url = env.BaseURL + notesPath + "?sort=title&order=asc&limit=2&cursor=" + cursor
-		resp = makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
-
-		respNotes := resp["notes"].([]any)
-		assert.Len(t, respNotes, 2, shouldReturn2Notes)
-		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
-		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
 
 		// Next two notes should be "Cherry Note" and "Date Note"
-		firstNote := respNotes[0].(map[string]any)
-		secondNote := respNotes[1].(map[string]any)
 		assert.Equal(t, "Cherry Note", firstNote["title"])
 		assert.Equal(t, dateNote, secondNote["title"])
 	})
@@ -616,16 +565,9 @@ func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]
 	// Test descending order pagination
 	t.Run("first_page_title_desc", func(t *testing.T) {
 		url := env.BaseURL + notesPath + "?sort=title&order=desc&limit=2"
-		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
-
-		respNotes := resp["notes"].([]any)
-		assert.Len(t, respNotes, 2, shouldReturn2Notes)
-		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
-		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
 
 		// First two notes should be "Elderberry Note" and "Date Note" (reverse order)
-		firstNote := respNotes[0].(map[string]any)
-		secondNote := respNotes[1].(map[string]any)
 		assert.Equal(t, "Elderberry Note", firstNote["title"])
 		assert.Equal(t, dateNote, secondNote["title"])
 	})
