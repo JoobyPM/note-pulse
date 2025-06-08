@@ -11,3 +11,5 @@ tmp/*
 
 docs/openapi*
 !docs/openapi/.gitkeep
+
+sonar-project.properties

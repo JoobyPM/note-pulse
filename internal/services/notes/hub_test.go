@@ -76,10 +76,7 @@ func TestHubConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 		t.Skip("skipping resource-intensive test in short mode")
 	}
 
-	// initialise a quiet logger
-	cfg := config.Config{LogLevel: "error", LogFormat: "text"}
-	_, err := logger.Init(cfg)
-	require.NoError(t, err)
+	setupTestLogger(t)
 
 	const (
 		numUsers       = 10 // subscribers to create
@@ -87,26 +84,48 @@ func TestHubConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 	)
 
 	hub := NewHub(256)
+	testData := setupConcurrentBroadcastTest(t, hub, numUsers)
+	defer testData.cleanup()
 
-	// create users, subscribers and cancel fns
+	received := runConcurrentBroadcastTest(testData, broadcastCount)
+	verifyConcurrentBroadcastResults(t, received, numUsers)
+}
+
+// setupTestLogger initializes a quiet logger for testing
+func setupTestLogger(t *testing.T) {
+	cfg := config.Config{LogLevel: "error", LogFormat: "text"}
+	_, err := logger.Init(cfg)
+	require.NoError(t, err)
+}
+
+// concurrentBroadcastTestData holds test setup data
+type concurrentBroadcastTestData struct {
+	users   []bson.ObjectID
+	subs    []*Subscriber
+	cancels []func()
+	notes   []*Note
+	hub     *Hub
+}
+
+// cleanup closes all subscribers
+func (td *concurrentBroadcastTestData) cleanup() {
+	for _, c := range td.cancels {
+		c()
+	}
+}
+
+// setupConcurrentBroadcastTest creates users, subscribers and notes for testing
+func setupConcurrentBroadcastTest(t *testing.T, hub *Hub, numUsers int) *concurrentBroadcastTestData {
 	users := make([]bson.ObjectID, numUsers)
 	subs := make([]*Subscriber, numUsers)
 	cancels := make([]func(), numUsers)
+	notes := make([]*Note, numUsers)
 
 	for i := range numUsers {
 		users[i] = bson.NewObjectID()
 		connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
 		subs[i], cancels[i] = hub.Subscribe(context.Background(), connULID, users[i])
-	}
-	defer func() { // make sure we always tidy up
-		for _, c := range cancels {
-			c()
-		}
-	}()
 
-	// one note per user (simple payload - we only care about the id's)
-	notes := make([]*Note, numUsers)
-	for i := range numUsers {
 		notes[i] = &Note{
 			ID:     bson.NewObjectID(),
 			UserID: users[i],
@@ -115,60 +134,82 @@ func TestHubConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 		}
 	}
 
-	// receiver goroutines
+	return &concurrentBroadcastTestData{
+		users:   users,
+		subs:    subs,
+		cancels: cancels,
+		notes:   notes,
+		hub:     hub,
+	}
+}
+
+// runConcurrentBroadcastTest executes the concurrent broadcast test
+func runConcurrentBroadcastTest(testData *concurrentBroadcastTestData, broadcastCount int) []int {
 	var (
 		rcvMu    sync.Mutex
-		received = make([]int, numUsers)
+		received = make([]int, len(testData.users))
 		wgRecv   sync.WaitGroup
 	)
-	for i := range numUsers {
-		wgRecv.Add(1)
 
+	startReceiverGoroutines(testData, &wgRecv, &rcvMu, received)
+	runBroadcasterGoroutines(testData, broadcastCount)
+	finalizeConcurrentTest(testData, &wgRecv)
+
+	return received
+}
+
+// startReceiverGoroutines starts goroutines to receive events
+func startReceiverGoroutines(testData *concurrentBroadcastTestData, wgRecv *sync.WaitGroup, rcvMu *sync.Mutex, received []int) {
+	for i := range len(testData.users) {
+		wgRecv.Add(1)
 		go func(idx int) {
 			defer wgRecv.Done()
-
 			for {
 				select {
-				case ev, ok := <-subs[idx].Ch:
+				case ev, ok := <-testData.subs[idx].Ch:
 					if !ok {
-						return // channel closed
+						return
 					}
-					// closed channel sends zero value; guard nil
-					if ev.Note != nil && ev.Note.UserID == users[idx] {
+					if ev.Note != nil && ev.Note.UserID == testData.users[idx] {
 						rcvMu.Lock()
 						received[idx]++
 						rcvMu.Unlock()
 					}
-				case <-subs[idx].Done:
+				case <-testData.subs[idx].Done:
 					return
 				}
 			}
 		}(i)
 	}
+}
 
-	// broadcaster goroutines
+// runBroadcasterGoroutines starts goroutines to broadcast events
+func runBroadcasterGoroutines(testData *concurrentBroadcastTestData, broadcastCount int) {
 	var wgSend sync.WaitGroup
 	for range broadcastCount {
-		for u := range numUsers {
+		for u := range len(testData.users) {
 			wgSend.Add(1)
 			go func(idx int) {
 				defer wgSend.Done()
-				hub.Broadcast(context.Background(), NoteEvent{
+				testData.hub.Broadcast(context.Background(), NoteEvent{
 					Type: "created",
-					Note: notes[idx],
+					Note: testData.notes[idx],
 				})
 			}(u)
 		}
 	}
+	wgSend.Wait()
+}
 
-	wgSend.Wait()                      // all messages queued
+// finalizeConcurrentTest handles cleanup and synchronization
+func finalizeConcurrentTest(testData *concurrentBroadcastTestData, wgRecv *sync.WaitGroup) {
 	time.Sleep(200 * time.Millisecond) // small grace period
-	for _, c := range cancels {
-		c()
-	} // close all subscribers
-	wgRecv.Wait() // receivers finished
+	testData.cleanup()                 // close all subscribers
+	wgRecv.Wait()                      // receivers finished
+}
 
-	// every user should have received at least one event
+// verifyConcurrentBroadcastResults verifies that all users received events
+func verifyConcurrentBroadcastResults(t *testing.T, received []int, numUsers int) {
 	for i := range numUsers {
 		assert.Greater(t, received[i], 0, "user %d should have received events", i)
 		t.Logf("user %d received %d events", i, received[i])

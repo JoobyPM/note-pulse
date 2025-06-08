@@ -138,12 +138,41 @@ func ResetCache() {
 
 // Validate checks if required configuration fields are properly set
 func (c Config) Validate() error {
+	if err := c.validateJWT(); err != nil {
+		return err
+	}
+	if err := c.validateRanges(); err != nil {
+		return err
+	}
+	if err := c.validateStringFields(); err != nil {
+		return err
+	}
+	if err := c.validatePositiveNumbers(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateJWT validates JWT-related configuration
+func (c Config) validateJWT() error {
 	if c.JWTSecret == "" && !c.DevMode {
 		return ErrJWTSecretRequired
 	}
 	if len(c.JWTSecret) < 32 && !c.DevMode {
 		return ErrJWTSecretTooShort
 	}
+	// Validate JWT algorithm, in future I may add support RS256
+	switch c.JWTAlgorithm {
+	case "HS256":
+		// ok
+	default:
+		return ErrJWTAlgorithmUnsupported
+	}
+	return nil
+}
+
+// validateRanges validates numeric fields that must be within specific ranges
+func (c Config) validateRanges() error {
 	if c.AppPort <= 0 || c.AppPort > 65535 {
 		return ErrAppPortRange
 	}
@@ -153,6 +182,11 @@ func (c Config) Validate() error {
 	if c.SignInRatePerMin < 1 {
 		return ErrSignInRatePerMin
 	}
+	return nil
+}
+
+// validateStringFields validates string fields that cannot be empty
+func (c Config) validateStringFields() error {
 	if c.LogLevel == "" {
 		return ErrLogLevelEmpty
 	}
@@ -165,6 +199,11 @@ func (c Config) Validate() error {
 	if c.MongoDBName == "" {
 		return ErrMongoDBNameEmpty
 	}
+	return nil
+}
+
+// validatePositiveNumbers validates numeric fields that must be positive
+func (c Config) validatePositiveNumbers() error {
 	if c.WSMaxSessionSec <= 0 {
 		return ErrWSMaxSessionSecPositive
 	}
@@ -176,14 +215,6 @@ func (c Config) Validate() error {
 	}
 	if c.RefreshTokenDays <= 0 {
 		return ErrRefreshTokenDaysPositive
-	}
-
-	// Validate JWT algorithm, in future I may add support RS256
-	switch c.JWTAlgorithm {
-	case "HS256":
-		// ok
-	default:
-		return ErrJWTAlgorithmUnsupported
 	}
 	return nil
 }
