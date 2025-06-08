@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -126,7 +127,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 		return &token, nil
 	}
 
-	if err != mongo.ErrNoDocuments {
+	if !errors.Is(err, mongo.ErrNoDocuments) {
 		safeLog().Error("failed to query refresh token via lookup_hash", "error", err)
 		return nil, err
 	}

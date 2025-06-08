@@ -27,7 +27,11 @@ func TestRefreshTokenDoubleRevoke_E2E(t *testing.T) {
 	}
 	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpBody, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var signUpResp map[string]any

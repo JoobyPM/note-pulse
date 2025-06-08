@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"note-pulse/cmd/server/handlers"
-	authHandlers "note-pulse/cmd/server/handlers/auth"
+	"note-pulse/cmd/server/handlers/auth"
 	"note-pulse/cmd/server/handlers/httperr"
 	notesHandlers "note-pulse/cmd/server/handlers/notes"
 	"note-pulse/cmd/server/middlewares"
@@ -98,7 +98,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
 	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
-	authHandlers := authHandlers.NewHandlers(authSvc, v)
+	authHandlers := auth.NewHandlers(authSvc, v)
 
 	authGrp.Post("/sign-up", authHandlers.SignUp)
 	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)

@@ -91,7 +91,11 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.O
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func(ctxToClose context.Context) {
+		if err := cursor.Close(ctxToClose); err != nil {
+			logger.L().Error("failed to close cursor", "error", err)
+		}
+	}(ctx)
 
 	var notesList []*notes.Note
 	if err := cursor.All(ctx, &notesList); err != nil {

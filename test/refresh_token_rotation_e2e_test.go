@@ -22,7 +22,11 @@ func TestRefreshTokenRotation_E2E(t *testing.T) {
 
 	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpReq, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var signUpResp map[string]any
@@ -38,7 +42,11 @@ func TestRefreshTokenRotation_E2E(t *testing.T) {
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var refreshResp map[string]any
@@ -56,7 +64,11 @@ func TestRefreshTokenRotation_E2E(t *testing.T) {
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", oldRefreshReq, nil)
 	require.NoError(t, err, "should refresh token")
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 		"Old refresh token should be immediately invalidated after rotation")
@@ -73,6 +85,10 @@ func TestRefreshTokenRotation_E2E(t *testing.T) {
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", newRefreshReq, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "New refresh token should still be valid")
 }

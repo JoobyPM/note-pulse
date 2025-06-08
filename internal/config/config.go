@@ -87,7 +87,8 @@ func Load() (Config, error) {
 
 	// Try to read .env file (it's okay if it doesn't exist)
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return Config{}, err
 		}
 	}

@@ -1,6 +1,8 @@
 package httperr
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -51,14 +53,16 @@ var (
 // Handler is the global error handler for Fiber
 func Handler(c *fiber.Ctx, err error) error {
 	// Check if it's our custom error type
-	if e, ok := err.(E); ok {
+	var e E
+	if errors.As(err, &e) {
 		return e.JSON(c)
 	}
 
-	if e, ok := err.(*fiber.Error); ok {
-		return c.Status(e.Code).JSON(E{
-			Status:  e.Code,
-			Message: e.Message,
+	var fiberError *fiber.Error
+	if errors.As(err, &fiberError) {
+		return c.Status(fiberError.Code).JSON(E{
+			Status:  fiberError.Code,
+			Message: fiberError.Message,
 		})
 	}
 

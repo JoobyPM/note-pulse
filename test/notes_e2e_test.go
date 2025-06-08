@@ -37,7 +37,11 @@ func TestNotesE2E(t *testing.T) {
 
 		resp, err := httpJSON("POST", env.BaseURL+"/api/v1/notes", payload, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -60,7 +64,11 @@ func TestNotesE2E(t *testing.T) {
 	t.Run("list_notes_expect_one", func(t *testing.T) {
 		resp, err := httpJSON("GET", env.BaseURL+"/api/v1/notes", nil, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -203,7 +211,11 @@ func TestNotesE2E(t *testing.T) {
 		url := env.BaseURL + "/api/v1/notes?limit=50"
 		resp, err := httpJSON("GET", url, nil, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var page1 map[string]any
@@ -222,7 +234,11 @@ func TestNotesE2E(t *testing.T) {
 		url = env.BaseURL + "/api/v1/notes?limit=50&cursor=" + cursor
 		resp, err = httpJSON("GET", url, nil, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var page2 map[string]any
@@ -241,7 +257,11 @@ func TestNotesE2E(t *testing.T) {
 		url = env.BaseURL + "/api/v1/notes?limit=50&cursor=" + cursor
 		resp, err = httpJSON("GET", url, nil, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var page3 map[string]any
@@ -277,7 +297,11 @@ func TestNotesE2E(t *testing.T) {
 
 		resp, err := httpJSON("PATCH", env.BaseURL+"/api/v1/notes/"+noteAID, updatePayload, otherHeaders)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
@@ -290,7 +314,11 @@ func TestNotesE2E(t *testing.T) {
 		// Try to delete note A with second user's token
 		resp, err = httpJSON("DELETE", env.BaseURL+"/api/v1/notes/"+noteAID, nil, otherHeaders)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
@@ -311,13 +339,21 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 
 	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpPayload, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == http.StatusBadRequest {
 		// User might already exist, try sign in
 		resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-in", signUpPayload, nil)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf("failed to close response body: %v", err)
+			}
+		}()
 	}
 
 	require.True(t, resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK)

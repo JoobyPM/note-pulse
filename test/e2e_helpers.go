@@ -284,7 +284,7 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 
 func signUp(t *testing.T, c *http.Client, baseURL, email, password string) {
 	t.Helper()
-	status, err := doJSONPost(c, baseURL+"/api/v1/auth/sign-up", map[string]string{
+	status, err := doJSONPost(t, c, baseURL+"/api/v1/auth/sign-up", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -294,7 +294,7 @@ func signUp(t *testing.T, c *http.Client, baseURL, email, password string) {
 
 func signInExpect(t *testing.T, c *http.Client, baseURL, email, password string, want int) {
 	t.Helper()
-	status, err := doJSONPost(c, baseURL+"/api/v1/auth/sign-in", map[string]string{
+	status, err := doJSONPost(t, c, baseURL+"/api/v1/auth/sign-in", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -302,7 +302,8 @@ func signInExpect(t *testing.T, c *http.Client, baseURL, email, password string,
 	require.Equal(t, want, status)
 }
 
-func doJSONPost(c *http.Client, url string, body any) (int, error) {
+func doJSONPost(t *testing.T, c *http.Client, url string, body any) (int, error) {
+	t.Helper()
 	b, _ := json.Marshal(body)
 
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
@@ -315,7 +316,11 @@ func doJSONPost(c *http.Client, url string, body any) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	return resp.StatusCode, nil
 }

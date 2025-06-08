@@ -58,7 +58,11 @@ func main() {
 	if err != nil {
 		fail(codeRequestFailed, msgRequestFailed, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		fail(codeBadHTTPStatus, msgBadHTTPStatus, resp.StatusCode)

@@ -87,14 +87,22 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 	userIDStr, ok := c.Locals("userID").(string)
 	if !ok {
 		logger.L().Error("userID not found in WebSocket context")
-		c.Close()
+		defer func() {
+			if err := c.Close(); err != nil {
+				logger.L().Error("failed to close WebSocket connection", "error", err)
+			}
+		}()
 		return
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
 		logger.L().Error("invalid userID in WebSocket context", "userID", userIDStr, "error", err)
-		c.Close()
+		defer func() {
+			if err := c.Close(); err != nil {
+				logger.L().Error("failed to close WebSocket connection", "error", err)
+			}
+		}()
 		return
 	}
 
@@ -106,7 +114,11 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 	parentCtx, ok := c.Locals("parentCtx").(context.Context)
 	if !ok {
 		logger.L().Error("parentCtx not found in WebSocket context")
-		c.Close()
+		defer func() {
+			if err := c.Close(); err != nil {
+				logger.L().Error("failed to close WebSocket connection", "error", err)
+			}
+		}()
 		return
 	}
 

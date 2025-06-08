@@ -22,7 +22,11 @@ func TestSignOutAll_E2E(t *testing.T) {
 
 	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpReq, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var signUpResp map[string]any
@@ -41,7 +45,11 @@ func TestSignOutAll_E2E(t *testing.T) {
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-in", signInReq, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var signInResp map[string]any
@@ -61,7 +69,11 @@ func TestSignOutAll_E2E(t *testing.T) {
 	}
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq1, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "First refresh token should work")
 
 	refreshReq2 := map[string]string{
@@ -69,7 +81,11 @@ func TestSignOutAll_E2E(t *testing.T) {
 	}
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq2, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Second refresh token should work")
 
 	t.Log("step 5: call sign-out-all using one of the access tokens")
@@ -79,7 +95,11 @@ func TestSignOutAll_E2E(t *testing.T) {
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-out-all", nil, headers)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Sign-out-all should succeed")
 
 	var signOutResp map[string]any
@@ -89,13 +109,21 @@ func TestSignOutAll_E2E(t *testing.T) {
 	t.Log("step 6: verify both refresh tokens are now invalid")
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq1, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 		"First refresh token should be invalid after sign-out-all")
 
 	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq2, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 		"Second refresh token should be invalid after sign-out-all")
 }

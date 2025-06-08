@@ -3,6 +3,7 @@ package notes
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func (m *MockHub) Subscribe(ctx context.Context, connULID ulid.ULID, userID bson
 	return sub, cancel
 }
 
-func (m *MockHub) Unsubscribe(ctx context.Context, connULID ulid.ULID) {
+func (m *MockHub) Unsubscribe(_ context.Context, connULID ulid.ULID) {
 	if sub, exists := m.subscribers[connULID]; exists {
 		close(sub.Ch)
 		close(sub.Done)
@@ -298,7 +299,11 @@ func TestWSSessionTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Could not establish WebSocket connection for timeout test: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close WebSocket connection: %v", err)
+		}
+	}()
 
 	now := time.Now().UTC()
 
@@ -316,7 +321,8 @@ func TestWSSessionTimeout(t *testing.T) {
 	// The connection should be closed due to timeout
 	if readMessageErr != nil {
 		// Check if it's a close error with the expected close code
-		if closeErr, ok := readMessageErr.(*gorillaws.CloseError); ok {
+		var closeErr *gorillaws.CloseError
+		if errors.As(readMessageErr, &closeErr) {
 			assert.Equal(t, WSClosePolicyViolation, closeErr.Code, "Expected policy violation close code")
 		}
 
