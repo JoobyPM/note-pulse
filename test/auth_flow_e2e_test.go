@@ -25,7 +25,11 @@ func TestAuthFlowE2E(t *testing.T) {
 
 		resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpPayload, nil)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf(msgFailedToCloseResponseBody, err)
+			}
+		}()
 
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -50,7 +54,11 @@ func TestAuthFlowE2E(t *testing.T) {
 
 		resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-in", signInPayload, nil)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf(msgFailedToCloseResponseBody, err)
+			}
+		}()
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -77,7 +85,11 @@ func TestAuthFlowE2E(t *testing.T) {
 
 		resp, err := httpJSON("GET", env.BaseURL+"/api/v1/me", nil, headers)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Errorf(msgFailedToCloseResponseBody, err)
+			}
+		}()
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 

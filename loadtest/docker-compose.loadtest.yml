@@ -3,8 +3,8 @@ services:
   # MongoDB - in-memory for load tests
   ###########################################################################
   mongo:
-    ports: null # ← wipe the host-port binding
-    volumes: null # ← wipe the named volume
+    ports: null # wipe the host-port binding
+    volumes: null # wipe the named volume
     deploy:
       resources:
         limits:

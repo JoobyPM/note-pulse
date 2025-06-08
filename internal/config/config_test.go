@@ -1,4 +1,3 @@
-// Relative path: ./internal/config/config_test.go
 package config
 
 import (
@@ -60,7 +59,7 @@ func clearConfigEnvVars(t *testing.T) {
 	}
 }
 
-func TestConfig_LoadDefaults(t *testing.T) {
+func TestConfigLoadDefaults(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -84,7 +83,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.True(t, cfg.RequestLoggingEnabled)
 }
 
-func TestConfig_LoadWithOverride(t *testing.T) {
+func TestConfigLoadWithOverride(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -103,7 +102,7 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 	assert.True(t, cfg.DevMode)
 }
 
-func TestConfig_Caching(t *testing.T) {
+func TestConfigCaching(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -119,7 +118,7 @@ func TestConfig_Caching(t *testing.T) {
 	assert.Equal(t, cfg1, cfg2)
 }
 
-func TestConfig_RequestLoggingDisabled(t *testing.T) {
+func TestConfigRequestLoggingDisabled(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -136,7 +135,7 @@ func TestConfig_RequestLoggingDisabled(t *testing.T) {
 // Validate() unit tests (table-driven)
 // -----------------------------------------------------------------------------
 
-func TestConfig_Validate(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		modify  func(*Config) // mutates the baseValidConfig
@@ -144,11 +143,12 @@ func TestConfig_Validate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name:   "valid config",
-			modify: func(*Config) {},
-			// No-op: baseValidConfig already returns a valid configuration.
-			// Leaving this empty makes the test exercise the happy-path
-			// scenario where Validate should succeed without any mutations.
+			name: "valid config",
+			modify: func(*Config) {
+				// No-op: baseValidConfig already returns a valid configuration.
+				// Leaving this empty makes the test exercise the happy-path
+				// scenario where Validate should succeed without any mutations.
+			},
 		},
 		{
 			name: "invalid port - zero",
@@ -156,7 +156,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.AppPort = 0
 			},
 			wantErr: true,
-			errMsg:  "APP_PORT must be between 1 and 65535",
+			errMsg:  ErrAppPortRange.Error(),
 		},
 		{
 			name: "invalid port - negative",
@@ -164,7 +164,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.AppPort = -1
 			},
 			wantErr: true,
-			errMsg:  "APP_PORT must be between 1 and 65535",
+			errMsg:  ErrAppPortRange.Error(),
 		},
 		{
 			name: "invalid port - too high",
@@ -172,7 +172,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.AppPort = 70000
 			},
 			wantErr: true,
-			errMsg:  "APP_PORT must be between 1 and 65535",
+			errMsg:  ErrAppPortRange.Error(),
 		},
 		{
 			name: "empty log level",
@@ -180,7 +180,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.LogLevel = ""
 			},
 			wantErr: true,
-			errMsg:  "LOG_LEVEL cannot be empty",
+			errMsg:  ErrLogLevelEmpty.Error(),
 		},
 		{
 			name: "empty JWT secret",
@@ -189,7 +189,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.DevMode = false
 			},
 			wantErr: true,
-			errMsg:  "JWT_SECRET is required (see .env.template)",
+			errMsg:  ErrJWTSecretRequired.Error(),
 		},
 		{
 			name: "bcrypt cost too low",
@@ -197,7 +197,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.BcryptCost = 7
 			},
 			wantErr: true,
-			errMsg:  "BCRYPT_COST must be between 8 and 16",
+			errMsg:  ErrBcryptCostRange.Error(),
 		},
 		{
 			name: "bcrypt cost too high",
@@ -205,7 +205,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.BcryptCost = 17
 			},
 			wantErr: true,
-			errMsg:  "BCRYPT_COST must be between 8 and 16",
+			errMsg:  ErrBcryptCostRange.Error(),
 		},
 		{
 			name: "signin rate too low",
@@ -213,7 +213,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.SignInRatePerMin = 0
 			},
 			wantErr: true,
-			errMsg:  "SIGNIN_RATE_PER_MIN must be greater than or equal to 1",
+			errMsg:  ErrSignInRatePerMin.Error(),
 		},
 		{
 			name: "JWT secret too short for HS256",
@@ -222,7 +222,7 @@ func TestConfig_Validate(t *testing.T) {
 				c.DevMode = false
 			},
 			wantErr: true,
-			errMsg:  "JWT_SECRET must be ≥32 chars",
+			errMsg:  ErrJWTSecretTooShort.Error(),
 		},
 		{
 			name: "invalid JWT algorithm",
@@ -230,12 +230,12 @@ func TestConfig_Validate(t *testing.T) {
 				c.JWTAlgorithm = "INVALID"
 			},
 			wantErr: true,
-			errMsg:  "JWT_ALGORITHM must be either HS256",
+			errMsg:  ErrJWTAlgorithmUnsupported.Error(),
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture
+		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseValidConfig()
 			tt.modify(&cfg)
@@ -243,9 +243,7 @@ func TestConfig_Validate(t *testing.T) {
 			err := cfg.Validate()
 			if tt.wantErr {
 				assert.Error(t, err)
-				if err != nil {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
+				assert.Equal(t, tt.errMsg, err.Error())
 			} else {
 				assert.NoError(t, err)
 			}

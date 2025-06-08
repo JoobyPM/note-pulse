@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRefreshTokenDoubleRevoke_E2E verifies that the same refresh token cannot
+// TestRefreshTokenDoubleRevokeE2E verifies that the same refresh token cannot
 // be used twice in /auth/sign-out.  The first call must succeed; the second one must be rejected (401 Unauthorized).
-func TestRefreshTokenDoubleRevoke_E2E(t *testing.T) {
+func TestRefreshTokenDoubleRevokeE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 
 	const (
@@ -27,7 +27,11 @@ func TestRefreshTokenDoubleRevoke_E2E(t *testing.T) {
 	}
 	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpBody, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf(msgFailedToCloseResponseBody, err)
+		}
+	}()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var signUpResp map[string]any

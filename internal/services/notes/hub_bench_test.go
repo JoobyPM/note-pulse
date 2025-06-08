@@ -12,7 +12,7 @@ import (
 )
 
 // BenchmarkHub_Subscribe measures the performance of subscribing users
-func BenchmarkHub_Subscribe(b *testing.B) {
+func BenchmarkHubSubscribe(b *testing.B) {
 	hub := NewHub(256)
 	userIDs := make([]bson.ObjectID, b.N)
 	for i := 0; i < b.N; i++ {
@@ -34,7 +34,7 @@ func BenchmarkHub_Subscribe(b *testing.B) {
 
 // M3: BenchmarkHub_Broadcast-16                            	 2770507	       453.7 ns/op	       0 B/op	       0 allocs/op
 // BenchmarkHub_Broadcast measures the performance of broadcasting events
-func BenchmarkHub_Broadcast(b *testing.B) {
+func BenchmarkHubBroadcast(b *testing.B) {
 	hub := NewHub(256)
 
 	// Set up multiple users with subscribers
@@ -84,7 +84,7 @@ func BenchmarkHub_Broadcast(b *testing.B) {
 
 // M3: BenchmarkHub_ConcurrentSubscribeUnsubscribe-16       	  598104	      1793 ns/op	    7616 B/op	      10 allocs/op
 // BenchmarkHub_ConcurrentSubscribeUnsubscribe measures mixed workload performance
-func BenchmarkHub_ConcurrentSubscribeUnsubscribe(b *testing.B) {
+func BenchmarkHubConcurrentSubscribeUnsubscribe(b *testing.B) {
 	hub := NewHub(256)
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -121,7 +121,7 @@ func BenchmarkHub_ConcurrentSubscribeUnsubscribe(b *testing.B) {
 // M3: BenchmarkHub_ScalingUsers/users_1k/users_1k-16       	 6453801	       196.8 ns/op	       0 B/op	       0 allocs/op
 // M3: BenchmarkHub_ScalingUsers/users_5k/users_5k-16       	 8820848	       191.5 ns/op	       0 B/op	       0 allocs/op
 // BenchmarkHub_ScalingUsers measures how performance scales with number of users
-func BenchmarkHub_ScalingUsers(b *testing.B) {
+func BenchmarkHubScalingUsers(b *testing.B) {
 	userCounts := []int{10, 100, 1000, 5000}
 
 	for _, userCount := range userCounts {
@@ -183,7 +183,7 @@ func benchmarkWithUserCount(b *testing.B, userCount int) {
 
 // M3: BenchmarkHub_ConcurrentBroadcastDifferentUsers-16    	 4108659	       267.2 ns/op	      76 B/op	       2 allocs/op
 // BenchmarkHub_ConcurrentBroadcastDifferentUsers verifies concurrent broadcasts scale linearly
-func BenchmarkHub_ConcurrentBroadcastDifferentUsers(b *testing.B) {
+func BenchmarkHubConcurrentBroadcastDifferentUsers(b *testing.B) {
 	hub := NewHub(256)
 
 	// Set up multiple users, each with one subscriber
@@ -242,7 +242,7 @@ func BenchmarkHub_ConcurrentBroadcastDifferentUsers(b *testing.B) {
 // M3: BenchmarkHub_Memory/subscribe_unsubscribe_cycle-16   	  723106	      1826 ns/op	    7488 B/op	       9 allocs/op
 // M3: BenchmarkHub_Memory/user_bucket_reuse-16             	  679950	      1847 ns/op	    7488 B/op	       9 allocs/op
 // BenchmarkHub_Memory measures memory usage patterns
-func BenchmarkHub_Memory(b *testing.B) {
+func BenchmarkHubMemory(b *testing.B) {
 	b.Run("subscribe_unsubscribe_cycle", func(b *testing.B) {
 		hub := NewHub(256)
 		userID := bson.NewObjectID()

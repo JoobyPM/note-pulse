@@ -16,7 +16,7 @@ import (
 
 const softLimit = 100
 
-// NotesRepo implements the notes.NotesRepo interface for MongoDB
+// NotesRepo implements the notes.Repository interface for MongoDB
 type NotesRepo struct {
 	collection *mongo.Collection
 }
@@ -33,7 +33,7 @@ func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, er
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(parentCtx, MongoOpTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, OpTimeout)
 	defer cancel()
 
 	_, err := collection.Indexes().CreateOne(ctx, indexModel)
@@ -54,7 +54,7 @@ func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, er
 
 // Create creates a new note in the database
 func (r *NotesRepo) Create(ctx context.Context, note *notes.Note) error {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	now := time.Now()
@@ -67,7 +67,7 @@ func (r *NotesRepo) Create(ctx context.Context, note *notes.Note) error {
 
 // List retrieves notes for a user with cursor-based pagination
 func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.ObjectID, limit int) ([]*notes.Note, error) {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	// Apply soft limit of 100
@@ -91,7 +91,11 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.O
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func(ctxToClose context.Context) {
+		if err := cursor.Close(ctxToClose); err != nil {
+			logger.L().Error("failed to close cursor", "error", err)
+		}
+	}(ctx)
 
 	var notesList []*notes.Note
 	if err := cursor.All(ctx, &notesList); err != nil {
@@ -103,7 +107,7 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.O
 
 // Update updates a note belonging to the specified user
 func (r *NotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, patch notes.UpdateNote) (*notes.Note, error) {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	filter := bson.M{
@@ -144,7 +148,7 @@ func (r *NotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, pa
 
 // Delete deletes a note belonging to the specified user
 func (r *NotesRepo) Delete(ctx context.Context, userID, noteID bson.ObjectID) error {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	filter := bson.M{

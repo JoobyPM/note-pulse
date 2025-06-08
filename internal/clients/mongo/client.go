@@ -120,12 +120,6 @@ func DB() *mongo.Database {
 	return db
 }
 
-// SupportsTransactions returns whether the MongoDB instance supports transactions.
-// This is detected during initialization via the "hello" command.
-func SupportsTransactions() bool {
-	return IsReplicaSet()
-}
-
 // Shutdown gracefully shuts down the MongoDB connection.
 // Safe to call more than once.
 func Shutdown(ctx context.Context) error {

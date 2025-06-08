@@ -17,7 +17,11 @@ func TestHealthzE2E(t *testing.T) {
 	// Test health endpoint
 	resp, err := env.Client.Get(env.BaseURL + "/healthz")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf(msgFailedToCloseResponseBody, err)
+		}
+	}()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 

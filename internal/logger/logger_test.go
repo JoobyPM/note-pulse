@@ -12,7 +12,24 @@ import (
 	"note-pulse/internal/config"
 )
 
-func TestLogger_FormatSelection(t *testing.T) {
+const (
+	mongoURI    = "mongodb://localhost:27017"
+	mongoDBName = "test"
+	jwtSecret   = "secret"
+)
+
+func getTestConfig() config.Config {
+	return config.Config{
+		AppPort:     8080,
+		LogLevel:    "info",
+		LogFormat:   "json",
+		MongoURI:    mongoURI,
+		MongoDBName: mongoDBName,
+		JWTSecret:   jwtSecret,
+	}
+}
+
+func TestLoggerFormatSelection(t *testing.T) {
 	tests := []struct {
 		name       string
 		logFormat  string
@@ -42,14 +59,8 @@ func TestLogger_FormatSelection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.Config{
-				AppPort:     8080,
-				LogLevel:    "info",
-				LogFormat:   tt.logFormat,
-				MongoURI:    "mongodb://localhost:27017",
-				MongoDBName: "test",
-				JWTSecret:   "secret",
-			}
+			cfg := getTestConfig()
+			cfg.LogFormat = tt.logFormat
 
 			var buf bytes.Buffer
 
@@ -82,15 +93,9 @@ func TestLogger_FormatSelection(t *testing.T) {
 	}
 }
 
-func TestLogger_LevelFiltering(t *testing.T) {
-	cfg := config.Config{
-		AppPort:     8080,
-		LogLevel:    "info",
-		LogFormat:   "json",
-		MongoURI:    "mongodb://localhost:27017",
-		MongoDBName: "test",
-		JWTSecret:   "secret",
-	}
+func TestLoggerLevelFiltering(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.LogFormat = "json"
 
 	var buf bytes.Buffer
 	opts := &slog.HandlerOptions{Level: slog.LevelInfo}
@@ -111,15 +116,9 @@ func TestLogger_LevelFiltering(t *testing.T) {
 	require.NotNil(t, log)
 }
 
-func TestLogger_Idempotency(t *testing.T) {
-	cfg := config.Config{
-		AppPort:     8080,
-		LogLevel:    "info",
-		LogFormat:   "json",
-		MongoURI:    "mongodb://localhost:27017",
-		MongoDBName: "test",
-		JWTSecret:   "secret",
-	}
+func TestLoggerIdempotency(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.LogFormat = "json"
 
 	log1, err1 := Init(cfg)
 	require.NoError(t, err1)
@@ -131,14 +130,8 @@ func TestLogger_Idempotency(t *testing.T) {
 
 	assert.Same(t, log1, log2, "subsequent Init calls should return the same logger instance")
 
-	differentCfg := config.Config{
-		AppPort:     9090,
-		LogLevel:    "debug",
-		LogFormat:   "text",
-		MongoURI:    "mongodb://localhost:27017",
-		MongoDBName: "test",
-		JWTSecret:   "secret",
-	}
+	differentCfg := getTestConfig()
+	differentCfg.LogFormat = "text"
 
 	log3, err3 := Init(differentCfg)
 	require.NoError(t, err3)
@@ -147,15 +140,9 @@ func TestLogger_Idempotency(t *testing.T) {
 	assert.Same(t, log1, log3, "Init with different config should still return the same logger instance")
 }
 
-func TestLogger_Concurrency(t *testing.T) {
-	cfg := config.Config{
-		AppPort:     8080,
-		LogLevel:    "info",
-		LogFormat:   "json",
-		MongoURI:    "mongodb://localhost:27017",
-		MongoDBName: "test",
-		JWTSecret:   "secret",
-	}
+func TestLoggerConcurrency(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.LogFormat = "json"
 
 	const numGoroutines = 10
 	var wg sync.WaitGroup
@@ -185,15 +172,9 @@ func TestLogger_Concurrency(t *testing.T) {
 	}
 }
 
-func TestLogger_L(t *testing.T) {
-	cfg := config.Config{
-		AppPort:     8080,
-		LogLevel:    "info",
-		LogFormat:   "json",
-		MongoURI:    "mongodb://localhost:27017",
-		MongoDBName: "test",
-		JWTSecret:   "secret",
-	}
+func TestLoggerL(t *testing.T) {
+	cfg := getTestConfig()
+	cfg.LogFormat = "json"
 
 	log1, err := Init(cfg)
 	require.NoError(t, err)

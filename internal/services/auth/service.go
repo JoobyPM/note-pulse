@@ -54,21 +54,21 @@ type SignInRequest struct {
 	Password string `json:"password" validate:"required" example:"Password123"`
 }
 
-// AuthResponse represents the response for successful authentication
-type AuthResponse struct {
+// Response represents the response for successful authentication
+type Response struct {
 	User         *User  `json:"user"`
 	Token        string `json:"token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTcyMzkyMjIsImlhdCI6MTcxNzIzOTIyMiwidXNlcl9pZCI6IjEyMyIsImVtYWlsIjoic3RyaW5nQGV4YW1wbGUuY29tIn0.1234567890"`
 	RefreshToken string `json:"refresh_token" example:"refresh_token_example_abcd1234"`
 }
 
-// SignUpResponse is an alias for AuthResponse
-type SignUpResponse = AuthResponse
+// SignUpResponse is an alias for Response
+type SignUpResponse = Response
 
-// SignInResponse is an alias for AuthResponse
-type SignInResponse = AuthResponse
+// SignInResponse is an alias for Response
+type SignInResponse = Response
 
 // SignUp registers a new user
-func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse, error) {
+func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*Response, error) {
 	email := normalizeEmail(req.Email)
 
 	existing, err := s.usersRepo.FindByEmail(ctx, email)
@@ -115,7 +115,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, ErrGenRefreshToken
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
@@ -123,7 +123,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 }
 
 // SignIn authenticates a user
-func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse, error) {
+func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*Response, error) {
 	email := normalizeEmail(req.Email)
 
 	user, err := s.usersRepo.FindByEmail(ctx, email)
@@ -159,7 +159,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		return nil, ErrGenRefreshToken
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
@@ -221,21 +221,10 @@ type SignOutRequest struct {
 }
 
 // Refresh validates a refresh token and returns new access and refresh tokens
-func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthResponse, error) {
-	refreshToken, err := s.refreshTokenRepo.FindActive(ctx, rawRefreshToken)
+func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*Response, error) {
+	refreshToken, user, err := s.validateRefreshTokenAndUser(ctx, rawRefreshToken)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			s.log.Info("refresh token not found or expired")
-			return nil, ErrInvalidRefreshToken
-		}
-		s.log.Error("failed to find refresh token", "error", err)
-		return nil, ErrInvalidRefreshToken
-	}
-
-	user, err := s.usersRepo.FindByID(ctx, refreshToken.UserID)
-	if err != nil {
-		s.log.Error("failed to find user for refresh token", "error", err, "user_id", refreshToken.UserID.Hex())
-		return nil, ErrInvalidRefreshToken
+		return nil, err
 	}
 
 	accessToken, err := s.GenerateAccessToken(user)
@@ -244,72 +233,116 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 		return nil, ErrRefreshTokens
 	}
 
-	newRefreshToken := rawRefreshToken // Default: don't rotate
-
-	if s.config.RefreshTokenRotate {
-		newRefreshToken, err = s.GenerateRefreshToken(user)
-		if err != nil {
-			s.log.Error(ErrGenRefreshToken.Error(), "error", err)
-			return nil, ErrRefreshTokens
-		}
-		newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
-
-		supportsTransactions := s.refreshTokenRepo.SupportsTransactions()
-
-		if !supportsTransactions {
-			// Standalone mode - best-effort two-step without transaction
-			s.log.Info("using fallback token rotation for standalone MongoDB")
-
-			// Create new token first
-			if err := s.refreshTokenRepo.Create(ctx, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
-				s.log.Error("failed to store new refresh token in fallback mode", "error", err)
-				return nil, ErrRefreshTokens
-			}
-
-			// Then revoke old token - log warning on error, don't fail request
-			if err := s.refreshTokenRepo.Revoke(ctx, refreshToken.ID); err != nil {
-				s.log.Warn("failed to revoke old refresh token in fallback mode, continuing", "error", err, "token_id", refreshToken.ID.Hex())
-			}
-
-			s.log.Debug("fallback refresh token rotation completed", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
-		} else {
-			// Use MongoDB transaction to ensure atomicity (create new -> revoke old)
-			client := s.refreshTokenRepo.Client()
-			sess, err := client.StartSession()
-			if err != nil {
-				s.log.Error("failed to start MongoDB session", "error", err)
-				return nil, ErrRefreshTokens
-			}
-			defer sess.EndSession(ctx)
-
-			_, err = sess.WithTransaction(ctx, func(sc context.Context) (any, error) {
-				if err := s.refreshTokenRepo.Create(sc, user.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
-					s.log.Error("failed to store new refresh token in transaction", "error", err)
-					return nil, err
-				}
-
-				// Second: Revoke the old refresh token (race-safe)
-				if err := s.refreshTokenRepo.Revoke(sc, refreshToken.ID); err != nil {
-					s.log.Error("failed to revoke old refresh token in transaction", "error", err, "token_id", refreshToken.ID.Hex())
-					return nil, err
-				}
-
-				s.log.Debug("refresh token rotation completed successfully", "user_id", user.ID.Hex(), "old_token_id", refreshToken.ID.Hex())
-				return nil, nil // commit transaction
-			})
-
-			if err != nil {
-				s.log.Error("refresh token rotation transaction failed", "error", err)
-				return nil, ErrRefreshTokens
-			}
-		}
+	newRefreshToken, err := s.handleRefreshTokenRotation(ctx, rawRefreshToken, refreshToken, user)
+	if err != nil {
+		return nil, err
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: newRefreshToken,
 	}, nil
+}
+
+// validateRefreshTokenAndUser validates the refresh token and retrieves the associated user
+func (s *Service) validateRefreshTokenAndUser(ctx context.Context, rawRefreshToken string) (*RefreshToken, *User, error) {
+	refreshToken, err := s.refreshTokenRepo.FindActive(ctx, rawRefreshToken)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			s.log.Info("refresh token not found or expired")
+			return nil, nil, ErrInvalidRefreshToken
+		}
+		s.log.Error("failed to find refresh token", "error", err)
+		return nil, nil, ErrInvalidRefreshToken
+	}
+
+	user, err := s.usersRepo.FindByID(ctx, refreshToken.UserID)
+	if err != nil {
+		s.log.Error("failed to find user for refresh token", "error", err, "user_id", refreshToken.UserID.Hex())
+		return nil, nil, ErrInvalidRefreshToken
+	}
+
+	return refreshToken, user, nil
+}
+
+// handleRefreshTokenRotation handles refresh token rotation if enabled
+func (s *Service) handleRefreshTokenRotation(ctx context.Context, rawRefreshToken string, refreshToken *RefreshToken, user *User) (string, error) {
+	if !s.config.RefreshTokenRotate {
+		return rawRefreshToken, nil
+	}
+
+	newRefreshToken, err := s.GenerateRefreshToken(user)
+	if err != nil {
+		s.log.Error(ErrGenRefreshToken.Error(), "error", err)
+		return "", ErrRefreshTokens
+	}
+
+	newRefreshExpiresAt := time.Now().UTC().Add(time.Duration(s.config.RefreshTokenDays) * 24 * time.Hour)
+
+	if err := s.executeTokenRotation(ctx, user.ID, refreshToken.ID, newRefreshToken, newRefreshExpiresAt); err != nil {
+		return "", err
+	}
+
+	return newRefreshToken, nil
+}
+
+// executeTokenRotation executes the token rotation using transactions or fallback mode
+func (s *Service) executeTokenRotation(ctx context.Context, userID, oldTokenID bson.ObjectID, newRefreshToken string, newRefreshExpiresAt time.Time) error {
+	if !s.refreshTokenRepo.SupportsTransactions() {
+		return s.executeTokenRotationFallback(ctx, userID, oldTokenID, newRefreshToken, newRefreshExpiresAt)
+	}
+	return s.executeTokenRotationWithTransaction(ctx, userID, oldTokenID, newRefreshToken, newRefreshExpiresAt)
+}
+
+// executeTokenRotationFallback handles token rotation without transactions
+func (s *Service) executeTokenRotationFallback(ctx context.Context, userID, oldTokenID bson.ObjectID, newRefreshToken string, newRefreshExpiresAt time.Time) error {
+	s.log.Info("using fallback token rotation for standalone MongoDB")
+
+	if err := s.refreshTokenRepo.Create(ctx, userID, newRefreshToken, newRefreshExpiresAt); err != nil {
+		s.log.Error("failed to store new refresh token in fallback mode", "error", err)
+		return ErrRefreshTokens
+	}
+
+	if err := s.refreshTokenRepo.Revoke(ctx, oldTokenID); err != nil {
+		s.log.Warn("failed to revoke old refresh token in fallback mode, continuing", "error", err, "token_id", oldTokenID.Hex())
+	}
+
+	s.log.Debug("fallback refresh token rotation completed", "user_id", userID.Hex(), "old_token_id", oldTokenID.Hex())
+	return nil
+}
+
+// executeTokenRotationWithTransaction handles token rotation using MongoDB transactions
+func (s *Service) executeTokenRotationWithTransaction(ctx context.Context, userID, oldTokenID bson.ObjectID, newRefreshToken string, newRefreshExpiresAt time.Time) error {
+	client := s.refreshTokenRepo.Client()
+	sess, err := client.StartSession()
+	if err != nil {
+		s.log.Error("failed to start MongoDB session", "error", err)
+		return ErrRefreshTokens
+	}
+	defer sess.EndSession(ctx)
+
+	_, err = sess.WithTransaction(ctx, func(sc context.Context) (any, error) {
+		if err := s.refreshTokenRepo.Create(sc, userID, newRefreshToken, newRefreshExpiresAt); err != nil {
+			s.log.Error("failed to store new refresh token in transaction", "error", err)
+			return nil, err
+		}
+
+		if err := s.refreshTokenRepo.Revoke(sc, oldTokenID); err != nil {
+			s.log.Error("failed to revoke old refresh token in transaction", "error", err, "token_id", oldTokenID.Hex())
+			return nil, err
+		}
+
+		s.log.Debug("refresh token rotation completed successfully", "user_id", userID.Hex(), "old_token_id", oldTokenID.Hex())
+		return nil, nil
+	})
+
+	if err != nil {
+		s.log.Error("refresh token rotation transaction failed", "error", err)
+		return ErrRefreshTokens
+	}
+
+	return nil
 }
 
 // SignOut revokes a specific refresh token

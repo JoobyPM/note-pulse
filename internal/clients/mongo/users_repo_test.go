@@ -17,7 +17,22 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func TestUsersRepo_Create(t *testing.T) {
+const (
+	msgExpectedNoError = "expected no error"
+)
+
+func getTestUserStruct() *auth.User {
+	now := time.Now().UTC()
+	return &auth.User{
+		ID:           bson.NewObjectID(),
+		Email:        "test@example.com",
+		PasswordHash: "hashedpassword",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
+func TestUsersRepoCreate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping MongoDB integration test")
 	}
@@ -26,16 +41,9 @@ func TestUsersRepo_Create(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	now := time.Now().UTC()
 	repo := NewUsersRepo(context.Background(), db)
 
-	user := &auth.User{
-		ID:           bson.NewObjectID(),
-		Email:        "test@example.com",
-		PasswordHash: "hashedpassword",
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
+	user := getTestUserStruct()
 
 	err := repo.Create(ctx, user)
 	require.NoError(t, err)
@@ -44,12 +52,12 @@ func TestUsersRepo_Create(t *testing.T) {
 	assert.Equal(t, auth.ErrDuplicate, err, "expected duplicate error")
 
 	found, err := repo.FindByEmail(ctx, user.Email)
-	require.NoError(t, err, "expected no error")
+	require.NoError(t, err, msgExpectedNoError)
 	assert.Equal(t, user.Email, found.Email, "expected email to be the same")
 	assert.Equal(t, user.PasswordHash, found.PasswordHash, "expected password hash to be the same")
 }
 
-func TestUsersRepo_FindByEmail(t *testing.T) {
+func TestUsersRepoFindByEmail(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping MongoDB integration test")
 	}
@@ -63,20 +71,14 @@ func TestUsersRepo_FindByEmail(t *testing.T) {
 	_, err := repo.FindByEmail(ctx, "nonexistent@example.com")
 	assert.Error(t, err, "expected error")
 	assert.Contains(t, err.Error(), auth.ErrUserNotFound.Error(), "expected error message")
-	now := time.Now().UTC()
-	user := &auth.User{
-		ID:           bson.NewObjectID(),
-		Email:        "test@example.com",
-		PasswordHash: "hashedpassword",
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
+
+	user := getTestUserStruct()
 
 	err = repo.Create(ctx, user)
-	require.NoError(t, err, "expected no error")
+	require.NoError(t, err, msgExpectedNoError)
 
 	found, err := repo.FindByEmail(ctx, user.Email)
-	require.NoError(t, err, "expected no error")
+	require.NoError(t, err, msgExpectedNoError)
 	assert.Equal(t, user.Email, found.Email, "expected email to be the same")
 	assert.Equal(t, user.PasswordHash, found.PasswordHash, "expected password hash to be the same")
 }

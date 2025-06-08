@@ -1,4 +1,3 @@
-// cmd/server/middlewares/jwt.go
 package middlewares
 
 import (

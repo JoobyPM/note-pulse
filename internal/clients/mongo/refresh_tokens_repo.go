@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -32,7 +33,7 @@ type RefreshTokensRepo struct {
 }
 
 // NewRefreshTokensRepo creates a new RefreshTokensRepo instance
-func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
+func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) *RefreshTokensRepo {
 	collection := db.Collection("refresh_tokens")
 
 	indexes := []mongo.IndexModel{
@@ -126,7 +127,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 		return &token, nil
 	}
 
-	if err != mongo.ErrNoDocuments {
+	if !errors.Is(err, mongo.ErrNoDocuments) {
 		safeLog().Error("failed to query refresh token via lookup_hash", "error", err)
 		return nil, err
 	}

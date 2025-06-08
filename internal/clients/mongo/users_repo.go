@@ -25,7 +25,7 @@ func NewUsersRepo(parentCtx context.Context, db *mongo.Database) *UsersRepo {
 		Options: options.Index().SetUnique(true),
 	}
 
-	ctx, cancel := context.WithTimeout(parentCtx, MongoOpTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, OpTimeout)
 	defer cancel()
 
 	// Ignore error if index already exists
@@ -38,7 +38,7 @@ func NewUsersRepo(parentCtx context.Context, db *mongo.Database) *UsersRepo {
 
 // Create creates a new user in the database
 func (r *UsersRepo) Create(ctx context.Context, user *auth.User) error {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	_, err := r.collection.InsertOne(ctx, user)
@@ -54,7 +54,7 @@ func (r *UsersRepo) Create(ctx context.Context, user *auth.User) error {
 
 // FindByEmail finds a user by email address
 func (r *UsersRepo) FindByEmail(ctx context.Context, email string) (*auth.User, error) {
-	ctx, cancel := WithRepoTimeout(ctx, MongoOpTimeout)
+	ctx, cancel := WithRepoTimeout(ctx, OpTimeout)
 	defer cancel()
 
 	var user auth.User

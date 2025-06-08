@@ -10,7 +10,7 @@ import (
 
 type mongoDriver struct{}
 
-func (mongoDriver) Connect(ctx context.Context, opts *options.ClientOptions) (*mongo.Client, error) {
+func (mongoDriver) Connect(_ context.Context, opts *options.ClientOptions) (*mongo.Client, error) {
 	return mongo.Connect(opts)
 }
 

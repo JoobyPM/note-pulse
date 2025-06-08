@@ -2,7 +2,7 @@ package auth
 
 import (
 	"errors"
-	"note-pulse/internal/handlers/httperr"
+	"note-pulse/cmd/server/handlers/httperr"
 )
 
 // ErrGenAccessToken is returned when we cannot create a JWT.

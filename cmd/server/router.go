@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"note-pulse/cmd/server/handlers"
+	"note-pulse/cmd/server/handlers/auth"
+	"note-pulse/cmd/server/handlers/httperr"
+	notesHandlers "note-pulse/cmd/server/handlers/notes"
 	"note-pulse/cmd/server/middlewares"
 	"note-pulse/internal/clients/mongo"
 	"note-pulse/internal/config"
-	authHandlers "note-pulse/internal/handlers/auth"
-	"note-pulse/internal/handlers/httperr"
-	notesHandlers "note-pulse/internal/handlers/notes"
 	"note-pulse/internal/logger"
 	authServices "note-pulse/internal/services/auth"
 	notesServices "note-pulse/internal/services/notes"
@@ -30,7 +30,6 @@ import (
 )
 
 const (
-	HealthzTimeout      = 2 * time.Second
 	RateLimitExpiration = 1 * time.Minute
 )
 
@@ -56,6 +55,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 
 	app := fiber.New(fiber.Config{
 		ErrorHandler: httperr.Handler,
+		Immutable:    true, // make Fiber copy all request-derived strings
 	})
 
 	// Global middlewares
@@ -96,9 +96,9 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	authGrp := v1.Group("/auth")
 
 	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB(), cfg.BcryptCost)
+	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
-	authHandlers := authHandlers.NewHandlers(authSvc, v)
+	authHandlers := auth.NewHandlers(authSvc, v)
 
 	authGrp.Post("/sign-up", authHandlers.SignUp)
 	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"note-pulse/internal/handlers/httperr"
+	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 
@@ -13,23 +13,23 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// AuthService defines the interface for auth service
-type AuthService interface {
-	SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.AuthResponse, error)
-	SignIn(ctx context.Context, req auth.SignInRequest) (*auth.AuthResponse, error)
-	Refresh(ctx context.Context, rawRefreshToken string) (*auth.AuthResponse, error)
+// Service defines the interface for auth service
+type Service interface {
+	SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.Response, error)
+	SignIn(ctx context.Context, req auth.SignInRequest) (*auth.Response, error)
+	Refresh(ctx context.Context, rawRefreshToken string) (*auth.Response, error)
 	SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshToken string) error
 	SignOutAll(ctx context.Context, userID bson.ObjectID) error
 }
 
 // Handlers contains the auth HTTP handlers
 type Handlers struct {
-	authService AuthService
+	authService Service
 	validator   *validator.Validate
 }
 
 // NewHandlers creates new auth handlers
-func NewHandlers(authService AuthService, validator *validator.Validate) *Handlers {
+func NewHandlers(authService Service, validator *validator.Validate) *Handlers {
 	return &Handlers{
 		authService: authService,
 		validator:   validator,
@@ -42,7 +42,7 @@ func NewHandlers(authService AuthService, validator *validator.Validate) *Handle
 // @Accept json
 // @Produce json
 // @Param request body auth.SignUpRequest true "Sign up request"
-// @Success 201 {object} auth.SignUpResponse
+// @Success 201 {object} auth.Response
 // @Failure 400 {object} httperr.E
 // @Router /auth/sign-up [post]
 func (h *Handlers) SignUp(c *fiber.Ctx) error {
@@ -75,7 +75,7 @@ func (h *Handlers) SignUp(c *fiber.Ctx) error {
 // @Accept json
 // @Produce json
 // @Param request body auth.SignInRequest true "Sign in request"
-// @Success 200 {object} auth.SignInResponse
+// @Success 200 {object} auth.Response
 // @Failure 400 {object} httperr.E
 // @Failure 401 {object} httperr.E
 // @Failure 429 {object} httperr.E
@@ -110,7 +110,7 @@ func (h *Handlers) SignIn(c *fiber.Ctx) error {
 // @Accept json
 // @Produce json
 // @Param request body auth.RefreshRequest true "Refresh token request"
-// @Success 200 {object} auth.AuthResponse
+// @Success 200 {object} auth.Response
 // @Failure 400 {object} httperr.E
 // @Failure 401 {object} httperr.E
 // @Router /auth/refresh [post]
