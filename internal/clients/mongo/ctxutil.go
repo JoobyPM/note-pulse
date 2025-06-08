@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// MongoOpTimeout is the default timeout for MongoDB operations
-const MongoOpTimeout = 5 * time.Second
+// OpTimeout is the default timeout for MongoDB operations
+const OpTimeout = 5 * time.Second
 
 // WithRepoTimeout returns ctx unchanged when it is already ≤ d away from expiring;
 // otherwise it wraps ctx in context.WithTimeout(ctx, d).

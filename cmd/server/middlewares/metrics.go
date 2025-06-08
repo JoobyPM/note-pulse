@@ -1,4 +1,3 @@
-// cmd/server/middlewares/metrics.go
 package middlewares
 
 import (

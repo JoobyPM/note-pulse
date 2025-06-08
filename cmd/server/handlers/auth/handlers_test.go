@@ -24,12 +24,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// AuthServiceInterface defines the interface for auth service
-type AuthServiceInterface interface {
-	SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.AuthResponse, error)
-	SignIn(ctx context.Context, req auth.SignInRequest) (*auth.AuthResponse, error)
-}
-
 // MockAuthService mocks the auth service
 type MockAuthService struct {
 	mock.Mock
@@ -69,7 +63,7 @@ func (m *MockAuthService) SignOutAll(ctx context.Context, userID bson.ObjectID) 
 	return args.Error(0)
 }
 
-func setupTestApp(authService *MockAuthService) *fiber.App {
+func setupTestApp(service *MockAuthService) *fiber.App {
 	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
 	if _, err := logger.Init(cfg); err != nil {
 		panic(err)
@@ -84,7 +78,7 @@ func setupTestApp(authService *MockAuthService) *fiber.App {
 		ErrorHandler: httperr.Handler,
 	})
 
-	h := NewHandlers(authService, v)
+	h := NewHandlers(service, v)
 
 	v1 := app.Group("/api/v1")
 	authGrp := v1.Group("/auth")
@@ -104,7 +98,7 @@ func setupTestApp(authService *MockAuthService) *fiber.App {
 	return app
 }
 
-func setupTestAppWithJWT(authService *MockAuthService) *fiber.App {
+func setupTestAppWithJWT(service *MockAuthService) *fiber.App {
 	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
 	if _, err := logger.Init(cfg); err != nil {
 		panic(err)
@@ -119,7 +113,7 @@ func setupTestAppWithJWT(authService *MockAuthService) *fiber.App {
 		ErrorHandler: httperr.Handler,
 	})
 
-	h := NewHandlers(authService, v)
+	h := NewHandlers(service, v)
 
 	v1 := app.Group("/api/v1")
 	authGrp := v1.Group("/auth")

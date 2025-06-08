@@ -276,7 +276,8 @@ func TestWSSessionTimeout(t *testing.T) {
 			email := "test@example.com"
 			c.Locals("userID", userID)
 			c.Locals("userEmail", email)
-			c.Locals("parentCtx", c.Context())
+			// Pass the correct context type so WSNotesStream doesn't reject the upgrade.
+			c.Locals("parentCtx", c.UserContext())
 			return c.Next()
 		}
 		return c.SendStatus(400)
@@ -315,7 +316,7 @@ func TestWSSessionTimeout(t *testing.T) {
 	// The connection should be closed due to timeout
 	if readMessageErr != nil {
 		// Check if it's a close error with the expected close code
-		if closeErr, ok := err.(*gorillaws.CloseError); ok {
+		if closeErr, ok := readMessageErr.(*gorillaws.CloseError); ok {
 			assert.Equal(t, WSClosePolicyViolation, closeErr.Code, "Expected policy violation close code")
 		}
 

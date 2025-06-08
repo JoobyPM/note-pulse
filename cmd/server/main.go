@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	mongo "note-pulse/internal/clients/mongo" // mongo client singleton
+	"note-pulse/internal/clients/mongo"
 	"note-pulse/internal/config"
 	"note-pulse/internal/logger"
 

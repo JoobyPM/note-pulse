@@ -39,6 +39,11 @@ type UpdateNoteRequest struct {
 	Color *string `json:"color,omitempty" validate:"omitempty,hexcolor" example:"#FF6B6B"`
 }
 
+// TODO: Add search route
+
+// TODO: add sorting option
+// TODO: add filter option
+
 // ListNotesRequest represents a list notes request
 type ListNotesRequest struct {
 	Limit  int    `query:"limit" validate:"omitempty,min=1,max=100" example:"50"`
@@ -52,6 +57,7 @@ type NoteResponse struct {
 
 // TODO: [pagination] add `has_more` field to the response
 // TODO: [pagination] add `total_count` field to the response
+
 // ListNotesResponse represents a list of notes response
 type ListNotesResponse struct {
 	Notes      []*Note `json:"notes"`
@@ -62,6 +68,7 @@ type ListNotesResponse struct {
 var ErrNoteNotFound = errors.New("note not found")
 
 // TODO: [validation] idea «Add HTML sanitisation. Decide on required feature set (Markdown? plaintext?) and use `github.com/microcosm-cc/bluemonday` or similar to sanitise on write, not on read.»
+
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
 	now := time.Now()

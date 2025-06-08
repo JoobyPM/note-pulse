@@ -1,4 +1,3 @@
-// internal/clients/mongo/replicaset.go
 package mongo
 
 import "sync/atomic"

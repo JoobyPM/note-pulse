@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// AuthService defines the interface for auth service
-type AuthService interface {
+// Service defines the interface for auth service
+type Service interface {
 	SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.AuthResponse, error)
 	SignIn(ctx context.Context, req auth.SignInRequest) (*auth.AuthResponse, error)
 	Refresh(ctx context.Context, rawRefreshToken string) (*auth.AuthResponse, error)
@@ -24,12 +24,12 @@ type AuthService interface {
 
 // Handlers contains the auth HTTP handlers
 type Handlers struct {
-	authService AuthService
+	authService Service
 	validator   *validator.Validate
 }
 
 // NewHandlers creates new auth handlers
-func NewHandlers(authService AuthService, validator *validator.Validate) *Handlers {
+func NewHandlers(authService Service, validator *validator.Validate) *Handlers {
 	return &Handlers{
 		authService: authService,
 		validator:   validator,

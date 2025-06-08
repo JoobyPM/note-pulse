@@ -69,7 +69,8 @@ func (h *WebSocketHandlers) WSUpgrade(c *fiber.Ctx) error {
 		// Store user info and context in locals for the WebSocket handler
 		c.Locals("userID", userID.Hex())
 		c.Locals("userEmail", userEmail)
-		c.Locals("parentCtx", c.Context())
+		// Use Fiber's request‑bound context so WSNotesStream gets a *real* context.Context.
+		c.Locals("parentCtx", c.UserContext())
 
 		return c.Next()
 	}

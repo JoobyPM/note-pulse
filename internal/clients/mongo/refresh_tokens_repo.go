@@ -32,7 +32,7 @@ type RefreshTokensRepo struct {
 }
 
 // NewRefreshTokensRepo creates a new RefreshTokensRepo instance
-func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database, bcryptCost int) *RefreshTokensRepo {
+func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) *RefreshTokensRepo {
 	collection := db.Collection("refresh_tokens")
 
 	indexes := []mongo.IndexModel{

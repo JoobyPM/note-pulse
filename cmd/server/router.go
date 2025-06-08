@@ -30,7 +30,6 @@ import (
 )
 
 const (
-	HealthzTimeout      = 2 * time.Second
 	RateLimitExpiration = 1 * time.Minute
 )
 
@@ -97,7 +96,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	authGrp := v1.Group("/auth")
 
 	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB(), cfg.BcryptCost)
+	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := authHandlers.NewHandlers(authSvc, v)
 
