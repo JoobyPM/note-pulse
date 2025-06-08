@@ -12,12 +12,17 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-func TestRefreshTokensRepo_Create(t *testing.T) {
+// setupRefreshTokensRepo is a helper function that sets up a test repository with database and context
+func setupRefreshTokensRepo(t *testing.T) (context.Context, *RefreshTokensRepo, *mongo.Database, func()) {
 	_, db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
 	ctx := context.Background()
+	repo := NewRefreshTokensRepo(ctx, db)
+	return ctx, repo, db, cleanup
+}
+
+func TestRefreshTokensRepo_Create(t *testing.T) {
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
+	defer cleanup()
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
@@ -36,11 +41,8 @@ func TestRefreshTokensRepo_Create(t *testing.T) {
 }
 
 func TestRefreshTokensRepo_FindActive(t *testing.T) {
-	_, db, cleanup := setupTestDB(t)
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
 	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
-	ctx := context.Background()
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
@@ -58,11 +60,8 @@ func TestRefreshTokensRepo_FindActive(t *testing.T) {
 }
 
 func TestRefreshTokensRepo_FindActive_Expired(t *testing.T) {
-	_, db, cleanup := setupTestDB(t)
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
 	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
-	ctx := context.Background()
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
@@ -76,11 +75,8 @@ func TestRefreshTokensRepo_FindActive_Expired(t *testing.T) {
 }
 
 func TestRefreshTokensRepo_Revoke(t *testing.T) {
-	_, db, cleanup := setupTestDB(t)
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
 	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
-	ctx := context.Background()
 
 	userID := bson.NewObjectID()
 	rawToken := "test-refresh-token-123"
@@ -103,11 +99,8 @@ func TestRefreshTokensRepo_Revoke(t *testing.T) {
 }
 
 func TestRefreshTokensRepo_RevokeAllForUser(t *testing.T) {
-	_, db, cleanup := setupTestDB(t)
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
 	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
-	ctx := context.Background()
 
 	userID := bson.NewObjectID()
 	otherUserID := bson.NewObjectID()
@@ -140,11 +133,8 @@ func TestRefreshTokensRepo_RevokeAllForUser(t *testing.T) {
 }
 
 func TestRefreshTokensRepo_FindActive_MultipleTokens(t *testing.T) {
-	_, db, cleanup := setupTestDB(t)
+	ctx, repo, _, cleanup := setupRefreshTokensRepo(t)
 	defer cleanup()
-
-	repo := NewRefreshTokensRepo(context.Background(), db)
-	ctx := context.Background()
 
 	userID := bson.NewObjectID()
 	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
@@ -175,8 +165,8 @@ func TestRefreshTokensRepo_Create_Duplicate(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewRefreshTokensRepo(context.Background(), db)
 	ctx := context.Background()
+	repo := NewRefreshTokensRepo(ctx, db)
 
 	userID := bson.NewObjectID()
 	rawToken := "same-token-for-both-goroutines"
