@@ -346,30 +346,55 @@ func (h *WebSocketHandlers) validateJWT(tokenString string) (bson.ObjectID, stri
 func LogWSConnections(jwtSecret string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
-
-			// Extract token for logging (without validating)
 			token := c.Query("token")
-			var userInfo string
-			if token != "" {
-				// Parse *and* verify the signature so the log can't be spoofed
-				parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
-					// Accept only the configured algorithm, then hand over the secret
-					if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-					}
-					return []byte(jwtSecret), nil
-				})
-				if err == nil && parsed.Valid {
-					if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
-						if userID, exists := claims["user_id"].(string); exists {
-							userInfo = userID
-						}
-					}
-				}
-			}
-
+			userInfo := extractUserIDFromToken(token, jwtSecret)
 			logger.L().Info("WebSocket upgrade attempt", "ip", c.IP(), "user", userInfo)
 		}
 		return c.Next()
 	}
+}
+
+// extractUserIDFromToken extracts and validates user ID from JWT token
+func extractUserIDFromToken(token, jwtSecret string) string {
+	if token == "" {
+		return ""
+	}
+
+	parsed, err := parseAndValidateToken(token, jwtSecret)
+	if err != nil || !parsed.Valid {
+		return ""
+	}
+
+	return getUserIDFromClaims(parsed.Claims)
+}
+
+// parseAndValidateToken parses JWT token and validates signature
+func parseAndValidateToken(token, jwtSecret string) (*jwt.Token, error) {
+	return jwt.Parse(token, func(t *jwt.Token) (any, error) {
+		if !isValidSigningMethod(t) {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(jwtSecret), nil
+	})
+}
+
+// isValidSigningMethod checks if the JWT uses HMAC signing method
+func isValidSigningMethod(token *jwt.Token) bool {
+	_, ok := token.Method.(*jwt.SigningMethodHMAC)
+	return ok
+}
+
+// getUserIDFromClaims extracts user_id from JWT claims
+func getUserIDFromClaims(claims jwt.Claims) string {
+	mapClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		return ""
+	}
+
+	userID, exists := mapClaims["user_id"].(string)
+	if !exists {
+		return ""
+	}
+
+	return userID
 }
