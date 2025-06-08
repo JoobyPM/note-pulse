@@ -4,6 +4,7 @@ package test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -82,6 +83,10 @@ func TestNotesE2E(t *testing.T) {
 			Color: testColor,
 		})
 		testCompoundIndexesExist(t, env)
+	})
+
+	t.Run("test_title_pagination_cursor", func(t *testing.T) {
+		testTitlePaginationCursor(t, env, headers)
 	})
 }
 
@@ -539,5 +544,120 @@ func testCompoundIndexesExist(t *testing.T, _ *TestEnvironment) {
 			}
 		}
 		assert.True(t, found, "expected compound index '%s' not found", expectedName)
+	}
+}
+
+// testTitlePaginationCursor tests title-based pagination with composite cursors
+func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]string) {
+	dateNote := "Date Note"
+	shouldReturn2Notes := "should return 2 notes"
+	shouldHaveMorePages := "should have more pages"
+	shouldHaveNextCursor := "should have next cursor"
+
+	// Use a separate user for this test to ensure isolation
+	titleTestToken := setupTestUser(t, env, "titletest@example.com", "Password123")
+	titleHeaders := getAuthHeaders(t, titleTestToken)
+
+	// Create notes with different titles to test alphabetical ordering
+	notes := []NoteParams{
+		{Title: "Apple Note", Body: "About apples", Color: testColor},
+		{Title: "Banana Note", Body: "About bananas", Color: testColor},
+		{Title: "Cherry Note", Body: "About cherries", Color: testColor},
+		{Title: dateNote, Body: "About dates", Color: testColor},
+		{Title: "Elderberry Note", Body: "About elderberries", Color: testColor},
+	}
+
+	// Create all notes
+	for _, note := range notes {
+		createAndVerifyNote(t, env, titleHeaders, note)
+	}
+
+	// Test first page with title sorting (ascending)
+	t.Run("first_page_title_asc", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=2"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+
+		respNotes := resp["notes"].([]any)
+		assert.Len(t, respNotes, 2, shouldReturn2Notes)
+		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
+		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+
+		// First two notes should be "Apple Note" and "Banana Note"
+		firstNote := respNotes[0].(map[string]any)
+		secondNote := respNotes[1].(map[string]any)
+		assert.Equal(t, "Apple Note", firstNote["title"])
+		assert.Equal(t, "Banana Note", secondNote["title"])
+	})
+
+	// Test second page using cursor from first page
+	t.Run("second_page_title_asc", func(t *testing.T) {
+		// Get first page to retrieve cursor
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=2"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+		cursor := resp["next_cursor"].(string)
+		require.NotEmpty(t, cursor)
+
+		// Use cursor for second page
+		url = env.BaseURL + notesPath + "?sort=title&order=asc&limit=2&cursor=" + cursor
+		resp = makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+
+		respNotes := resp["notes"].([]any)
+		assert.Len(t, respNotes, 2, shouldReturn2Notes)
+		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
+		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+
+		// Next two notes should be "Cherry Note" and "Date Note"
+		firstNote := respNotes[0].(map[string]any)
+		secondNote := respNotes[1].(map[string]any)
+		assert.Equal(t, "Cherry Note", firstNote["title"])
+		assert.Equal(t, dateNote, secondNote["title"])
+	})
+
+	// Test descending order pagination
+	t.Run("first_page_title_desc", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=desc&limit=2"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+
+		respNotes := resp["notes"].([]any)
+		assert.Len(t, respNotes, 2, shouldReturn2Notes)
+		assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
+		assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+
+		// First two notes should be "Elderberry Note" and "Date Note" (reverse order)
+		firstNote := respNotes[0].(map[string]any)
+		secondNote := respNotes[1].(map[string]any)
+		assert.Equal(t, "Elderberry Note", firstNote["title"])
+		assert.Equal(t, dateNote, secondNote["title"])
+	})
+
+	// Test that cursor format is base64 encoded JSON for title sorting
+	t.Run("cursor_format_validation", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=1"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+		cursor := resp["next_cursor"].(string)
+		require.NotEmpty(t, cursor)
+
+		// Cursor should be base64 encoded
+		decoded, err := base64.StdEncoding.DecodeString(cursor)
+		require.NoError(t, err, "cursor should be valid base64")
+
+		// Should decode to JSON with title and id fields
+		var cursorData map[string]any
+		err = json.Unmarshal(decoded, &cursorData)
+		require.NoError(t, err, "cursor should be valid JSON")
+
+		assert.Contains(t, cursorData, "title", "cursor should contain title field")
+		assert.Contains(t, cursorData, "id", "cursor should contain id field")
+		assert.IsType(t, "", cursorData["title"], "title should be string")
+		assert.IsType(t, "", cursorData["id"], "id should be string")
+	})
+
+	// Clean up test notes
+	listResp := makeHTTPRequest(t, "GET", env.BaseURL+notesPath, nil, titleHeaders, http.StatusOK)
+	respNotes := listResp["notes"].([]any)
+	for _, note := range respNotes {
+		noteMap := note.(map[string]any)
+		noteID := noteMap["id"].(string)
+		makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+noteID, nil, titleHeaders, http.StatusNoContent)
 	}
 }

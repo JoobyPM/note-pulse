@@ -2,8 +2,6 @@ package mongo
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -22,17 +20,11 @@ type NotesRepo struct {
 	collection *mongo.Collection
 }
 
-// compositeCursor represents a cursor for title-based pagination
-type compositeCursor struct {
-	Title string        `json:"title"`
-	ID    bson.ObjectID `json:"id"`
-}
-
 // NewNotesRepo creates a new notes repository
 func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, error) {
 	collection := db.Collection("notes")
 
-	// Create compound indexes for performance with background:false for production startup
+	// Create compound indexes for performance
 	indexes := []mongo.IndexModel{
 		// Existing index for default pagination
 		{
@@ -244,14 +236,9 @@ func (r *NotesRepo) addObjectIDCursorFilter(filter bson.M, cursorStr, order stri
 
 // addTitleCursorFilter adds cursor pagination filter for title-based sorting
 func (r *NotesRepo) addTitleCursorFilter(filter bson.M, cursorStr, order string) error {
-	decoded, err := base64.StdEncoding.DecodeString(cursorStr)
+	cursor, err := notes.DecodeCompositeCursor(cursorStr)
 	if err != nil {
 		return fmt.Errorf("invalid cursor format: %w", err)
-	}
-
-	var cursor compositeCursor
-	if err := json.Unmarshal(decoded, &cursor); err != nil {
-		return fmt.Errorf("invalid cursor data: %w", err)
 	}
 
 	// Build compound filter based on sort order
@@ -325,6 +312,19 @@ func (r *NotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, pa
 	}
 	if patch.Color != nil {
 		update["$set"].(bson.M)["color"] = *patch.Color
+	}
+
+	// Skip update if only updated_at would be set (micro-optimization)
+	if len(update["$set"].(bson.M)) == 1 {
+		var existingNote notes.Note
+		err := r.collection.FindOne(ctx, filter).Decode(&existingNote)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, notes.ErrNoteNotFound
+			}
+			return nil, err
+		}
+		return &existingNote, nil
 	}
 
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)

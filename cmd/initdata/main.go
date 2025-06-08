@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
@@ -30,13 +31,8 @@ func env(key, def string) string {
 }
 func envInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
-		var i int
-		i, err := fmt.Sscan(v, &i)
-		if err != nil {
-			return def
-		}
-		if i > 0 {
-			return i
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
 		}
 	}
 	return def

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
+
+	"note-pulse/internal/utils/sanitize"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -46,7 +49,7 @@ type ListNotesRequest struct {
 	Q      string `query:"q"      validate:"omitempty,min=1,max=256" example:"meeting"`
 	Color  string `query:"color"  validate:"omitempty" example:"#FF0000"`
 	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"`
-	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"`
+	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"` // order is case-insensitive.
 }
 
 // NoteResponse represents a single note response
@@ -66,16 +69,14 @@ type ListNotesResponse struct {
 // ErrNoteNotFound - note not found in DB
 var ErrNoteNotFound = errors.New("note not found")
 
-// TODO: [validation] idea «Add HTML sanitisation. Decide on required feature set (Markdown? plaintext?) and use `github.com/microcosm-cc/bluemonday` or similar to sanitise on write, not on read.»
-
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
 	now := time.Now()
 	note := &Note{
 		ID:        bson.NewObjectID(),
 		UserID:    userID,
-		Title:     req.Title,
-		Body:      req.Body,
+		Title:     sanitize.Clean(req.Title),
+		Body:      sanitize.Clean(req.Body),
 		Color:     req.Color,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -94,30 +95,73 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 	return &NoteResponse{Note: note}, nil
 }
 
-// List retrieves notes for a user with pagination
-func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
+// validateListRequest validates the list request parameters
+func (s *Service) validateListRequest(req *ListNotesRequest) error {
 	// Set default limit if not provided
 	if req.Limit == 0 {
 		req.Limit = 50
 	}
 
+	// Normalize order field to lowercase for case-insensitive handling
+	if req.Order != "" {
+		req.Order = strings.ToLower(req.Order)
+	}
+
 	// Validate limit - return error instead of silently clipping
 	if req.Limit > 100 {
-		return nil, ErrInvalidLimit
+		return ErrInvalidLimit
 	}
 
 	// Validate cursor if provided
 	if req.Cursor != "" {
-		_, err := bson.ObjectIDFromHex(req.Cursor)
+		return s.validateCursor(req.Cursor, req.Sort)
+	}
+
+	return nil
+}
+
+// validateCursor validates the cursor format based on sort type
+func (s *Service) validateCursor(cursor, sort string) error {
+	if sort == "title" {
+		// Validate composite cursor format
+		_, err := DecodeCompositeCursor(cursor)
 		if err != nil {
-			return nil, ErrInvalidCursor
+			return ErrInvalidCursor
 		}
+	} else {
+		// Validate ObjectID cursor format
+		_, err := bson.ObjectIDFromHex(cursor)
+		if err != nil {
+			return ErrInvalidCursor
+		}
+	}
+	return nil
+}
+
+// generateNextCursor generates the next cursor for pagination
+func (s *Service) generateNextCursor(notes []*Note, sort string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+
+	last := notes[len(notes)-1]
+	if sort == "title" {
+		// Use composite cursor for title sorting
+		return EncodeCompositeCursor(last.Title, last.ID)
+	}
+	// Use simple ObjectID cursor for other sorts
+	return last.ID.Hex()
+}
+
+// List retrieves notes for a user with pagination
+func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
+	if err := s.validateListRequest(&req); err != nil {
+		return nil, err
 	}
 
 	// Fetch limit+1 to determine if there are more results
-	fetchLimit := req.Limit + 1
 	fetchReq := req
-	fetchReq.Limit = fetchLimit
+	fetchReq.Limit = req.Limit + 1
 
 	notes, totalCount, totalCountUnfiltered, err := s.repo.List(ctx, userID, fetchReq)
 	if err != nil {
@@ -139,16 +183,32 @@ func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesR
 	}
 
 	// Set next cursor only if we have more results
-	if hasMore && len(notes) > 0 {
-		response.NextCursor = notes[len(notes)-1].ID.Hex()
+	if hasMore {
+		response.NextCursor = s.generateNextCursor(notes, req.Sort)
 	}
 
 	return response, nil
 }
 
+// sanitizedUpdateNote creates an UpdateNote with sanitized title and body
+func sanitizedUpdateNote(req UpdateNoteRequest) UpdateNote {
+	patch := UpdateNote(req)
+
+	if patch.Title != nil {
+		sanitized := sanitize.Clean(*patch.Title)
+		patch.Title = &sanitized
+	}
+	if patch.Body != nil {
+		sanitized := sanitize.Clean(*patch.Body)
+		patch.Body = &sanitized
+	}
+
+	return patch
+}
+
 // Update updates a note belonging to the user
 func (s *Service) Update(ctx context.Context, userID, noteID bson.ObjectID, req UpdateNoteRequest) (*NoteResponse, error) {
-	patch := UpdateNote(req)
+	patch := sanitizedUpdateNote(req)
 
 	updatedNote, err := s.repo.Update(ctx, userID, noteID, patch)
 	if err != nil {

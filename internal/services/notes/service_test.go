@@ -16,9 +16,11 @@ import (
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 var (
+	testColor        = "#FF0000"
 	ErrRepositoryMsg = "repository error"
 	ErrDBMsg         = "db error"
 	UpdateNoteMsg    = "notes.UpdateNote"
+	mockNote         = mock.AnythingOfType("*notes.Note")
 )
 
 // MockNotesRepo is a mock implementation of Repository
@@ -76,10 +78,10 @@ func TestServiceCreate(t *testing.T) {
 			req: CreateNoteRequest{
 				Title: "Test Note",
 				Body:  "Test body",
-				Color: "#FF0000",
+				Color: testColor,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(nil)
+				repo.On("Create", mock.Anything, mockNote).Return(nil)
 				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
 					return ev.Type == "created"
 				})).Return()
@@ -93,7 +95,7 @@ func TestServiceCreate(t *testing.T) {
 				Body:  "Test body",
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New(ErrDBMsg))
+				repo.On("Create", mock.Anything, mockNote).Return(errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrCreateNote.Error(),
@@ -254,7 +256,9 @@ func TestServiceList(t *testing.T) {
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 1)
 				assert.Equal(t, "A First Note", resp.Notes[0].Title)
-				assert.Equal(t, noteID2.Hex(), resp.NextCursor)
+				// For title sorting, cursor should be base64 encoded JSON, not just ObjectID
+				assert.NotEqual(t, noteID2.Hex(), resp.NextCursor, "should use composite cursor for title sorting")
+				assert.NotEmpty(t, resp.NextCursor, "should have composite cursor")
 				assert.True(t, resp.HasMore)
 				assert.Equal(t, int64(2), resp.TotalCount)
 				assert.Equal(t, int64(5), resp.TotalCountUnfiltered)
@@ -537,6 +541,157 @@ func TestServiceCrossUserSafety(t *testing.T) {
 				err := service.Delete(context.Background(), user2, noteID)
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestServiceHTMLSanitization(t *testing.T) {
+	userID := bson.NewObjectID()
+	noteID := bson.NewObjectID()
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name        string
+		operation   string
+		dirtyTitle  string
+		dirtyBody   string
+		cleanTitle  string
+		cleanBody   string
+		description string
+	}{
+		{
+			name:        "create - strips script tags",
+			operation:   "create",
+			dirtyTitle:  `<script>alert('xss')</script>Meeting Notes`,
+			dirtyBody:   `<script>alert('body')</script>Meeting content`,
+			cleanTitle:  "Meeting Notes",
+			cleanBody:   "Meeting content",
+			description: "should remove script tags completely",
+		},
+		{
+			name:        "create - strips image with onerror",
+			operation:   "create",
+			dirtyTitle:  `<img src=x onerror=alert(1)>Important Note`,
+			dirtyBody:   `<img src=x onerror=alert('xss')>Important content`,
+			cleanTitle:  "Important Note",
+			cleanBody:   "Important content",
+			description: "should remove dangerous image tags",
+		},
+		{
+			name:        "create - strips all HTML tags but preserves text",
+			operation:   "create",
+			dirtyTitle:  `<div><p>Hello <b>world</b></p></div>`,
+			dirtyBody:   `<p>Body with <a href="http://evil.com">link</a> and <br> breaks</p>`,
+			cleanTitle:  "Hello world",
+			cleanBody:   "Body with link and breaks",
+			description: "should strip all HTML tags but keep text content with proper spacing",
+		},
+		{
+			name:        "create - preserves markdown-like syntax",
+			operation:   "create",
+			dirtyTitle:  `# Heading with **bold** text`,
+			dirtyBody:   `[link](http://example.com) and **bold** text`,
+			cleanTitle:  "# Heading with **bold** text",
+			cleanBody:   "[link](http://example.com) and **bold** text",
+			description: "should preserve markdown syntax which is not HTML",
+		},
+		{
+			name:        "update - strips script tags",
+			operation:   "update",
+			dirtyTitle:  `<script>alert('update')</script>Updated Notes`,
+			dirtyBody:   `<script>evil();</script>Updated content`,
+			cleanTitle:  "Updated Notes",
+			cleanBody:   "Updated content",
+			description: "should sanitize updates too",
+		},
+		{
+			name:        "update - strips dangerous attributes",
+			operation:   "update",
+			dirtyTitle:  `<p onclick="alert('xss')">Safe title</p>`,
+			dirtyBody:   `<div onmouseover="steal()">Safe body</div>`,
+			cleanTitle:  "Safe title",
+			cleanBody:   "Safe body",
+			description: "should remove dangerous event handlers",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+
+			service := NewService(repo, bus, silentLogger)
+
+			switch tt.operation {
+			case "create":
+				// Mock the repo to capture what was actually passed to Create
+				var capturedNote *Note
+				repo.On("Create", mock.Anything, mockNote).Run(func(args mock.Arguments) {
+					capturedNote = args.Get(1).(*Note)
+				}).Return(nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "created"
+				})).Return()
+
+				req := CreateNoteRequest{
+					Title: tt.dirtyTitle,
+					Body:  tt.dirtyBody,
+					Color: testColor,
+				}
+
+				resp, err := service.Create(context.Background(), userID, req)
+
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+				assert.NotNil(t, capturedNote, "should have captured the note passed to repo")
+
+				// Verify sanitization happened
+				assert.Equal(t, tt.cleanTitle, capturedNote.Title, "title should be sanitized: %s", tt.description)
+				assert.Equal(t, tt.cleanBody, capturedNote.Body, "body should be sanitized: %s", tt.description)
+
+				// Also check the response
+				assert.Equal(t, tt.cleanTitle, resp.Note.Title)
+				assert.Equal(t, tt.cleanBody, resp.Note.Body)
+
+			case "update":
+				// Mock the repo to capture what was actually passed to Update
+				var capturedPatch UpdateNote
+				mockUpdatedNote := &Note{
+					ID:        noteID,
+					UserID:    userID,
+					Title:     tt.cleanTitle,
+					Body:      tt.cleanBody,
+					Color:     testColor,
+					CreatedAt: now.Add(-time.Hour),
+					UpdatedAt: now,
+				}
+
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType(UpdateNoteMsg)).Run(func(args mock.Arguments) {
+					capturedPatch = args.Get(3).(UpdateNote)
+				}).Return(mockUpdatedNote, nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "updated"
+				})).Return()
+
+				req := UpdateNoteRequest{
+					Title: &tt.dirtyTitle,
+					Body:  &tt.dirtyBody,
+				}
+
+				resp, err := service.Update(context.Background(), userID, noteID, req)
+
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+
+				// Verify sanitization happened in the patch
+				assert.NotNil(t, capturedPatch.Title, "title should be present in patch")
+				assert.NotNil(t, capturedPatch.Body, "body should be present in patch")
+				assert.Equal(t, tt.cleanTitle, *capturedPatch.Title, "title should be sanitized: %s", tt.description)
+				assert.Equal(t, tt.cleanBody, *capturedPatch.Body, "body should be sanitized: %s", tt.description)
 			}
 
 			repo.AssertExpectations(t)
