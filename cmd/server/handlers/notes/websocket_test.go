@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -21,6 +23,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+)
+
+const (
+	wsMaxIncomingBytes = 1 << 20 // 1 MiB
 )
 
 // MockHub implements the Hub interface for testing
@@ -285,8 +291,13 @@ func TestWSSessionTimeout(t *testing.T) {
 	})
 	app.Get("/ws", websocket.New(wsHandlers.WSNotesStream))
 
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	listenerCloseErr := ln.Close() // Close the listener since Fiber will create its own
+	require.NoError(t, listenerCloseErr)
+
 	go func() {
-		err := app.Listen(":8888")
+		err := app.Listen(":" + fmt.Sprintf("%d", port))
 		require.NoError(t, err)
 	}()
 
@@ -295,10 +306,11 @@ func TestWSSessionTimeout(t *testing.T) {
 
 	// Connect to WebSocket
 	dialer := gorillaws.Dialer{}
-	conn, _, err := dialer.Dial("ws://localhost:8888/ws", nil)
+	conn, _, err := dialer.Dial(fmt.Sprintf("ws://127.0.0.1:%d/ws", port), nil)
 	if err != nil {
 		t.Fatalf("Could not establish WebSocket connection for timeout test: %v", err)
 	}
+	conn.SetReadLimit(wsMaxIncomingBytes)
 	defer func() {
 		if err := conn.Close(); err != nil {
 			t.Errorf("failed to close WebSocket connection: %v", err)

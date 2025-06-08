@@ -40,19 +40,13 @@ func (h *Handlers) getUserID(c *fiber.Ctx) (bson.ObjectID, error) {
 	userIDStr, ok := c.Locals("userID").(string)
 	if !ok {
 		logger.L().Error("user ID not found in context", "handler", "getUserID", "path", c.Path())
-		return bson.ObjectID{}, httperr.Fail(httperr.E{
-			Status:  401,
-			Message: "User ID not found in context",
-		})
+		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
 		logger.L().Error("invalid user ID", "handler", "getUserID", "userIDStr", userIDStr, "path", c.Path(), "error", err)
-		return bson.ObjectID{}, httperr.Fail(httperr.E{
-			Status:  401,
-			Message: "Invalid user ID",
-		})
+		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
 	}
 
 	return userID, nil

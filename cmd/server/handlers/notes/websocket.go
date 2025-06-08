@@ -20,6 +20,11 @@ import (
 const (
 	// WSClosePolicyViolation represents WebSocket close code for policy violation
 	WSClosePolicyViolation = 1008
+
+	// WebSocket timeout constants
+	wsWriteTimeout     = 10 * time.Second // Timeout for writing messages to WebSocket
+	wsPingInterval     = 25 * time.Second // Interval for sending ping messages
+	wsPingWriteTimeout = 5 * time.Second  // Timeout for writing ping messages
 )
 
 // Hub interface for WebSocket management
@@ -152,6 +157,22 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 		}
 	}()
 
+	// Start keep-alive ticker
+	ping := time.NewTicker(wsPingInterval)
+	defer ping.Stop()
+	go func() {
+		for range ping.C {
+			if err := c.SetWriteDeadline(time.Now().Add(wsPingWriteTimeout)); err != nil {
+				logger.L().Error("failed to set write deadline", "error", err, "user_id", userID.Hex(), "conn_id", connID)
+				return
+			}
+			if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
+				logger.L().Warn("failed to write ping message", "error", err, "user_id", userID.Hex(), "conn_id", connID)
+				return
+			}
+		}
+	}()
+
 	// Goroutine to handle outgoing messages
 	go func() {
 		defer func() {
@@ -186,6 +207,10 @@ func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
 					}
 				}
 
+				if err := c.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
+					logger.L().Error("failed to set write deadline", "error", err, "user_id", userID.Hex(), "conn_id", connID)
+					return
+				}
 				if err := c.WriteJSON(message); err != nil {
 					logger.L().Error("failed to write WebSocket message",
 						"error", err,

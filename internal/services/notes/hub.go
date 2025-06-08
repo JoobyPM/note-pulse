@@ -151,9 +151,7 @@ func (h *Hub) Broadcast(ctx context.Context, ev NoteEvent) {
 
 	log := logger.L()
 	if log != nil && log.Enabled(ctx, slog.LevelDebug) {
-		log.DebugContext(ctx,
-			"broadcasting event",
-			"user_id", ev.Note.UserID.Hex(),
+		log.DebugContext(ctx, "broadcasting event", "user_id", ev.Note.UserID.Hex(),
 			"event_type", ev.Type)
 	}
 

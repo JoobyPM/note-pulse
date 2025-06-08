@@ -8,7 +8,24 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config holds all application configuration
+var (
+	ErrJWTSecretRequired          = errors.New("JWT_SECRET is required (see .env.template)")
+	ErrJWTSecretTooShort          = errors.New("JWT_SECRET must be ≥32 chars")
+	ErrAppPortRange               = errors.New("APP_PORT must be between 1 and 65535")
+	ErrBcryptCostRange            = errors.New("BCRYPT_COST must be between 8 and 16")
+	ErrSignInRatePerMin           = errors.New("SIGNIN_RATE_PER_MIN must be greater than or equal to 1")
+	ErrLogLevelEmpty              = errors.New("LOG_LEVEL cannot be empty")
+	ErrLogFormatEmpty             = errors.New("LOG_FORMAT cannot be empty")
+	ErrMongoURIEmpty              = errors.New("MONGO_URI cannot be empty")
+	ErrMongoDBNameEmpty           = errors.New("MONGO_DB_NAME cannot be empty")
+	ErrWSMaxSessionSecPositive    = errors.New("WS_MAX_SESSION_SEC must be greater than 0")
+	ErrWSOutboxBufferPositive     = errors.New("WS_OUTBOX_BUFFER must be greater than 0")
+	ErrAccessTokenMinutesPositive = errors.New("ACCESS_TOKEN_MINUTES must be greater than 0")
+	ErrRefreshTokenDaysPositive   = errors.New("REFRESH_TOKEN_DAYS must be greater than 0")
+	ErrJWTAlgorithmUnsupported    = errors.New("JWT_ALGORITHM must be HS256")
+)
+
+// Config holds all application configuration.
 type Config struct {
 	AppPort               int    `mapstructure:"APP_PORT"`
 	BcryptCost            int    `mapstructure:"BCRYPT_COST"`
@@ -38,8 +55,8 @@ var (
 	configMutex  sync.RWMutex
 )
 
-// Load loads configuration from environment variables and .env file
-// It caches the result for subsequent calls
+// Load loads configuration from environment variables and optional .env file.
+// The result is cached for subsequent calls.
 func Load() (Config, error) {
 	configMutex.RLock()
 	if cachedConfig != nil {
@@ -85,10 +102,9 @@ func Load() (Config, error) {
 	v.SetConfigType("env")
 	v.AddConfigPath(".")
 
-	// Try to read .env file (it's okay if it doesn't exist)
 	if err := v.ReadInConfig(); err != nil {
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
 			return Config{}, err
 		}
 	}
@@ -109,9 +125,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	// Cache the configuration
 	cachedConfig = &cfg
-
 	return cfg, nil
 }
 
@@ -125,50 +139,51 @@ func ResetCache() {
 // Validate checks if required configuration fields are properly set
 func (c Config) Validate() error {
 	if c.JWTSecret == "" && !c.DevMode {
-		return errors.New("JWT_SECRET is required (see .env.template)")
+		return ErrJWTSecretRequired
 	}
 	if len(c.JWTSecret) < 32 && !c.DevMode {
-		return errors.New("JWT_SECRET must be ≥32 chars")
+		return ErrJWTSecretTooShort
 	}
 	if c.AppPort <= 0 || c.AppPort > 65535 {
-		return errors.New("APP_PORT must be between 1 and 65535")
+		return ErrAppPortRange
 	}
 	if c.BcryptCost < 8 || c.BcryptCost > 16 {
-		return errors.New("BCRYPT_COST must be between 8 and 16")
+		return ErrBcryptCostRange
 	}
 	if c.SignInRatePerMin < 1 {
-		return errors.New("SIGNIN_RATE_PER_MIN must be greater than or equal to 1")
+		return ErrSignInRatePerMin
 	}
 	if c.LogLevel == "" {
-		return errors.New("LOG_LEVEL cannot be empty")
+		return ErrLogLevelEmpty
 	}
 	if c.LogFormat == "" {
-		return errors.New("LOG_FORMAT cannot be empty")
+		return ErrLogFormatEmpty
 	}
 	if c.MongoURI == "" {
-		return errors.New("MONGO_URI cannot be empty")
+		return ErrMongoURIEmpty
 	}
 	if c.MongoDBName == "" {
-		return errors.New("MONGO_DB_NAME cannot be empty")
+		return ErrMongoDBNameEmpty
 	}
 	if c.WSMaxSessionSec <= 0 {
-		return errors.New("WS_MAX_SESSION_SEC must be greater than 0")
+		return ErrWSMaxSessionSecPositive
 	}
 	if c.WSOutboxBuffer <= 0 {
-		return errors.New("WS_OUTBOX_BUFFER must be greater than 0")
+		return ErrWSOutboxBufferPositive
 	}
 	if c.AccessTokenMinutes <= 0 {
-		return errors.New("ACCESS_TOKEN_MINUTES must be greater than 0")
+		return ErrAccessTokenMinutesPositive
 	}
 	if c.RefreshTokenDays <= 0 {
-		return errors.New("REFRESH_TOKEN_DAYS must be greater than 0")
+		return ErrRefreshTokenDaysPositive
 	}
 
 	// Validate JWT algorithm, in future I may add support RS256
 	switch c.JWTAlgorithm {
 	case "HS256":
+		// ok
 	default:
-		return errors.New("JWT_ALGORITHM must be either HS256")
+		return ErrJWTAlgorithmUnsupported
 	}
 	return nil
 }
