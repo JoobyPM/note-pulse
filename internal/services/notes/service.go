@@ -11,13 +11,13 @@ import (
 
 // Service handles notes business logic
 type Service struct {
-	repo NotesRepo
+	repo Repository
 	bus  Bus
 	log  *slog.Logger
 }
 
 // NewService creates a new notes service
-func NewService(repo NotesRepo, bus Bus, log *slog.Logger) *Service {
+func NewService(repo Repository, bus Bus, log *slog.Logger) *Service {
 	return &Service{
 		repo: repo,
 		bus:  bus,

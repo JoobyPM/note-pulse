@@ -15,7 +15,7 @@ import (
 
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// MockNotesRepo is a mock implementation of NotesRepo
+// MockNotesRepo is a mock implementation of Repository
 type MockNotesRepo struct {
 	mock.Mock
 }

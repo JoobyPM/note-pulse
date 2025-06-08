@@ -6,8 +6,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// NotesRepo defines the interface for notes repository operations
-type NotesRepo interface {
+// Repository defines the interface for notes repository operations
+type Repository interface {
 	Create(ctx context.Context, n *Note) error
 	List(ctx context.Context, userID bson.ObjectID, after bson.ObjectID, limit int) ([]*Note, error)
 	Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error)

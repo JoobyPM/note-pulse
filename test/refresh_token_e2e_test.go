@@ -29,7 +29,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	defer signupResp.Body.Close()
 	require.Equal(t, http.StatusCreated, signupResp.StatusCode, "should sign up")
 
-	var signupResult auth.AuthResponse
+	var signupResult auth.Response
 	err = json.NewDecoder(signupResp.Body).Decode(&signupResult)
 	require.NoError(t, err, "should decode signup response")
 	require.NotEmpty(t, signupResult.Token, "should have token")
@@ -47,7 +47,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	defer refreshResp.Body.Close()
 	require.Equal(t, http.StatusOK, refreshResp.StatusCode, "should refresh")
 
-	var refreshResult auth.AuthResponse
+	var refreshResult auth.Response
 	err = json.NewDecoder(refreshResp.Body).Decode(&refreshResult)
 	require.NoError(t, err, "should decode refresh response")
 	require.NotEmpty(t, refreshResult.Token, "should have token")

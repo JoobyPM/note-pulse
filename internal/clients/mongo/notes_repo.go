@@ -16,7 +16,7 @@ import (
 
 const softLimit = 100
 
-// NotesRepo implements the notes.NotesRepo interface for MongoDB
+// NotesRepo implements the notes.Repository interface for MongoDB
 type NotesRepo struct {
 	collection *mongo.Collection
 }

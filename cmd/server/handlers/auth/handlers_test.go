@@ -29,28 +29,28 @@ type MockAuthService struct {
 	mock.Mock
 }
 
-func (m *MockAuthService) SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.AuthResponse, error) {
+func (m *MockAuthService) SignUp(ctx context.Context, req auth.SignUpRequest) (*auth.Response, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.AuthResponse), args.Error(1)
+	return args.Get(0).(*auth.Response), args.Error(1)
 }
 
-func (m *MockAuthService) SignIn(ctx context.Context, req auth.SignInRequest) (*auth.AuthResponse, error) {
+func (m *MockAuthService) SignIn(ctx context.Context, req auth.SignInRequest) (*auth.Response, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.AuthResponse), args.Error(1)
+	return args.Get(0).(*auth.Response), args.Error(1)
 }
 
-func (m *MockAuthService) Refresh(ctx context.Context, rawRefreshToken string) (*auth.AuthResponse, error) {
+func (m *MockAuthService) Refresh(ctx context.Context, rawRefreshToken string) (*auth.Response, error) {
 	args := m.Called(ctx, rawRefreshToken)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*auth.AuthResponse), args.Error(1)
+	return args.Get(0).(*auth.Response), args.Error(1)
 }
 
 func (m *MockAuthService) SignOut(ctx context.Context, userID bson.ObjectID, rawRefreshToken string) error {
@@ -167,7 +167,7 @@ func TestSignUp_Success(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
+	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
 
 	mockService.On("SignUp", mock.Anything, auth.SignUpRequest{
 		Email:    "test@example.com",
@@ -186,7 +186,7 @@ func TestSignUp_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 201, resp.StatusCode)
 
-	var got auth.AuthResponse
+	var got auth.Response
 	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Equal(t, expected.User.Email, got.User.Email)
 	assert.Equal(t, expected.Token, got.Token)
@@ -261,7 +261,7 @@ func TestSignIn_Success(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
+	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
 
 	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
 		Email:    "test@example.com",
@@ -280,7 +280,7 @@ func TestSignIn_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 
-	var got auth.AuthResponse
+	var got auth.Response
 	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Equal(t, expected.User.Email, got.User.Email)
 	assert.Equal(t, expected.Token, got.Token)
@@ -323,7 +323,7 @@ func TestSignIn_RateLimit(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	expected := &auth.AuthResponse{User: user, Token: "mock-jwt-token"}
+	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
 
 	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
 		Email:    "test@example.com",

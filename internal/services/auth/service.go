@@ -54,21 +54,21 @@ type SignInRequest struct {
 	Password string `json:"password" validate:"required" example:"Password123"`
 }
 
-// AuthResponse represents the response for successful authentication
-type AuthResponse struct {
+// Response represents the response for successful authentication
+type Response struct {
 	User         *User  `json:"user"`
 	Token        string `json:"token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTcyMzkyMjIsImlhdCI6MTcxNzIzOTIyMiwidXNlcl9pZCI6IjEyMyIsImVtYWlsIjoic3RyaW5nQGV4YW1wbGUuY29tIn0.1234567890"`
 	RefreshToken string `json:"refresh_token" example:"refresh_token_example_abcd1234"`
 }
 
-// SignUpResponse is an alias for AuthResponse
-type SignUpResponse = AuthResponse
+// SignUpResponse is an alias for Response
+type SignUpResponse = Response
 
-// SignInResponse is an alias for AuthResponse
-type SignInResponse = AuthResponse
+// SignInResponse is an alias for Response
+type SignInResponse = Response
 
 // SignUp registers a new user
-func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse, error) {
+func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*Response, error) {
 	email := normalizeEmail(req.Email)
 
 	existing, err := s.usersRepo.FindByEmail(ctx, email)
@@ -115,7 +115,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 		return nil, ErrGenRefreshToken
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
@@ -123,7 +123,7 @@ func (s *Service) SignUp(ctx context.Context, req SignUpRequest) (*AuthResponse,
 }
 
 // SignIn authenticates a user
-func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse, error) {
+func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*Response, error) {
 	email := normalizeEmail(req.Email)
 
 	user, err := s.usersRepo.FindByEmail(ctx, email)
@@ -159,7 +159,7 @@ func (s *Service) SignIn(ctx context.Context, req SignInRequest) (*AuthResponse,
 		return nil, ErrGenRefreshToken
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
@@ -221,7 +221,7 @@ type SignOutRequest struct {
 }
 
 // Refresh validates a refresh token and returns new access and refresh tokens
-func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthResponse, error) {
+func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*Response, error) {
 	refreshToken, err := s.refreshTokenRepo.FindActive(ctx, rawRefreshToken)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -305,7 +305,7 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string) (*AuthRes
 		}
 	}
 
-	return &AuthResponse{
+	return &Response{
 		User:         user,
 		Token:        accessToken,
 		RefreshToken: newRefreshToken,
