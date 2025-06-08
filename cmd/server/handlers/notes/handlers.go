@@ -72,6 +72,8 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 // @Security Bearer
 // @Param limit query int false "Limit (default: 50, max: 100)" minimum(1) maximum(100)
 // @Param cursor query string false "Cursor for pagination"
+// @Param anchor query string false "Centre the window on this note id"
+// @Param span query int false "How many notes to return (default:limit)" minimum(3) maximum(100)
 // @Param q query string false "Full-text search in title or body"
 // @Param color query string false "Hex color filter (#RRGGBB)"
 // @Param sort query string false "Sort field: created_at|updated_at|title"
