@@ -25,6 +25,8 @@ const (
 	wsWriteTimeout     = 10 * time.Second // Timeout for writing messages to WebSocket
 	wsPingInterval     = 25 * time.Second // Interval for sending ping messages
 	wsPingWriteTimeout = 5 * time.Second  // Timeout for writing ping messages
+
+	msgFailedToCloseWebSocketConnection = "failed to close WebSocket connection"
 )
 
 // Hub interface for WebSocket management
@@ -89,168 +91,213 @@ func (h *WebSocketHandlers) WSUpgrade(c *fiber.Ctx) error {
 
 // WSNotesStream handles WebSocket connections for real-time notes updates
 func (h *WebSocketHandlers) WSNotesStream(c *websocket.Conn) {
+	conn, parentCtx, err := h.initializeConnection(c)
+	if err != nil {
+		h.closeConnection(c)
+		return
+	}
+
+	ctx, cancelCtx := context.WithCancel(parentCtx)
+	defer cancelCtx()
+
+	subscriber, cancel := h.hub.Subscribe(ctx, conn.connULID, conn.userID)
+	defer cancel()
+
+	logger.L().Info("WebSocket connection established", "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+
+	sessionTimer := h.startSessionTimer(c, conn, cancelCtx)
+	defer h.stopSessionTimer(sessionTimer)
+
+	ping := h.startKeepAlive(c, conn)
+	defer ping.Stop()
+
+	go h.handleOutgoingMessages(c, conn, subscriber, ctx)
+
+	h.handleIncomingMessages(c, conn)
+
+	logger.L().Info("WebSocket connection closed", "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+	cancelCtx()
+}
+
+// wsConnection holds connection-specific data
+type wsConnection struct {
+	userID   bson.ObjectID
+	connULID ulid.ULID
+	connID   string
+}
+
+// initializeConnection validates and sets up the WebSocket connection
+func (h *WebSocketHandlers) initializeConnection(c *websocket.Conn) (*wsConnection, context.Context, error) {
 	userIDStr, ok := c.Locals("userID").(string)
 	if !ok {
 		logger.L().Error("userID not found in WebSocket context")
-		defer func() {
-			if err := c.Close(); err != nil {
-				logger.L().Error("failed to close WebSocket connection", "error", err)
-			}
-		}()
-		return
+		return nil, nil, fmt.Errorf("userID not found")
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
 		logger.L().Error("invalid userID in WebSocket context", "userID", userIDStr, "error", err)
-		defer func() {
-			if err := c.Close(); err != nil {
-				logger.L().Error("failed to close WebSocket connection", "error", err)
-			}
-		}()
-		return
+		return nil, nil, fmt.Errorf("invalid userID: %w", err)
 	}
 
-	// Generate unique connection ID using ULID
-	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
-	connID := connULID.String()
-
-	// Retrieve parent context from Fiber handler
 	parentCtx, ok := c.Locals("parentCtx").(context.Context)
 	if !ok {
 		logger.L().Error("parentCtx not found in WebSocket context")
-		defer func() {
-			if err := c.Close(); err != nil {
-				logger.L().Error("failed to close WebSocket connection", "error", err)
-			}
-		}()
-		return
+		return nil, nil, fmt.Errorf("parentCtx not found")
 	}
 
-	// Handle incoming messages and outgoing events
-	ctx, cancelCtx := context.WithCancel(parentCtx)
-	defer cancelCtx()
+	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
+	connID := connULID.String()
 
-	// Subscribe to events
-	subscriber, cancel := h.hub.Subscribe(ctx, connULID, userID)
-	defer cancel()
+	conn := &wsConnection{
+		userID:   userID,
+		connULID: connULID,
+		connID:   connID,
+	}
 
-	logger.L().Info("WebSocket connection established", "user_id", userID.Hex(), "conn_id", connID)
+	return conn, parentCtx, nil
+}
 
-	sessionTimer := time.AfterFunc(time.Duration(h.maxSessionSec)*time.Second, func() {
-		logger.L().Info("WebSocket session timeout", "user_id", userID.Hex(), "conn_id", connID)
+// closeConnection safely closes the WebSocket connection
+func (h *WebSocketHandlers) closeConnection(c *websocket.Conn) {
+	if err := c.Close(); err != nil {
+		logger.L().Error(msgFailedToCloseWebSocketConnection, "error", err)
+	}
+}
 
-		// Send close frame with policy violation code
-		err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(WSClosePolicyViolation, "session timeout"))
-		if err != nil {
-			logger.L().Error("failed to send close message", "error", err, "user_id", userID.Hex(), "conn_id", connID)
-		}
-		err = c.Close()
-		if err != nil {
-			logger.L().Error("failed to close WebSocket connection", "error", err, "user_id", userID.Hex(), "conn_id", connID)
-		}
+// startSessionTimer creates and starts the session timeout timer
+func (h *WebSocketHandlers) startSessionTimer(c *websocket.Conn, conn *wsConnection, cancelCtx context.CancelFunc) *time.Timer {
+	return time.AfterFunc(time.Duration(h.maxSessionSec)*time.Second, func() {
+		logger.L().Info("WebSocket session timeout", "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+		h.sendCloseMessage(c, conn)
+		h.closeConnection(c)
 		cancelCtx()
 	})
-	defer func() {
-		if sessionTimer != nil {
-			sessionTimer.Stop()
-		}
-	}()
+}
 
-	// Start keep-alive ticker
+// stopSessionTimer safely stops the session timer
+func (h *WebSocketHandlers) stopSessionTimer(timer *time.Timer) {
+	if timer != nil {
+		timer.Stop()
+	}
+}
+
+// sendCloseMessage sends a close frame to the client
+func (h *WebSocketHandlers) sendCloseMessage(c *websocket.Conn, conn *wsConnection) {
+	err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(WSClosePolicyViolation, "session timeout"))
+	if err != nil {
+		logger.L().Error("failed to send close message", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+	}
+}
+
+// startKeepAlive starts the keep-alive ping mechanism
+func (h *WebSocketHandlers) startKeepAlive(c *websocket.Conn, conn *wsConnection) *time.Ticker {
 	ping := time.NewTicker(wsPingInterval)
-	defer ping.Stop()
 	go func() {
 		for range ping.C {
-			if err := c.SetWriteDeadline(time.Now().Add(wsPingWriteTimeout)); err != nil {
-				logger.L().Error("failed to set write deadline", "error", err, "user_id", userID.Hex(), "conn_id", connID)
-				return
-			}
-			if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
-				logger.L().Warn("failed to write ping message", "error", err, "user_id", userID.Hex(), "conn_id", connID)
+			if h.sendPing(c, conn) != nil {
 				return
 			}
 		}
 	}()
+	return ping
+}
 
-	// Goroutine to handle outgoing messages
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.L().Error("panic in WebSocket sender", "error", r, "user_id", userID.Hex())
-			}
-		}()
+// sendPing sends a ping message to the client
+func (h *WebSocketHandlers) sendPing(c *websocket.Conn, conn *wsConnection) error {
+	if err := c.SetWriteDeadline(time.Now().Add(wsPingWriteTimeout)); err != nil {
+		logger.L().Error("failed to set write deadline", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+		return err
+	}
+	if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
+		logger.L().Warn("failed to write ping message", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+		return err
+	}
+	return nil
+}
 
-		for {
-			select {
-			case event, ok := <-subscriber.Ch:
-				if !ok {
-					// Channel closed, connection should be terminated
-					return
-				}
-
-				var message map[string]any
-
-				// For deleted events, only send minimal data
-				if event.Type == "deleted" {
-					message = map[string]any{
-						"type": event.Type,
-						"note": map[string]any{
-							"id": event.Note.ID.Hex(),
-						},
-					}
-				} else {
-					// For created/updated events, send full note data
-					message = map[string]any{
-						"type": event.Type,
-						"note": event.Note,
-					}
-				}
-
-				if err := c.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
-					logger.L().Error("failed to set write deadline", "error", err, "user_id", userID.Hex(), "conn_id", connID)
-					return
-				}
-				if err := c.WriteJSON(message); err != nil {
-					logger.L().Error("failed to write WebSocket message",
-						"error", err,
-						"user_id", userID.Hex(),
-						"conn_id", connID)
-					return
-				}
-
-			case <-subscriber.Done:
-				// Graceful shutdown signal received
-				return
-
-			case <-ctx.Done():
-				return
-			}
+// handleOutgoingMessages handles messages sent to the client
+func (h *WebSocketHandlers) handleOutgoingMessages(c *websocket.Conn, conn *wsConnection, subscriber *notes.Subscriber, ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.L().Error("panic in WebSocket sender", "error", r, "user_id", conn.userID.Hex())
 		}
 	}()
 
-	// Main loop to handle incoming messages and connection lifecycle
-	// Read message from client (we don't expect any, but need to handle ping/pong)
+	for {
+		select {
+		case event, ok := <-subscriber.Ch:
+			if !ok {
+				return
+			}
+			if h.sendEvent(c, conn, event) != nil {
+				return
+			}
+		case <-subscriber.Done:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// sendEvent sends an event to the client
+func (h *WebSocketHandlers) sendEvent(c *websocket.Conn, conn *wsConnection, event notes.NoteEvent) error {
+	message := h.buildEventMessage(event)
+
+	if err := c.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
+		logger.L().Error("failed to set write deadline", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+		return err
+	}
+	if err := c.WriteJSON(message); err != nil {
+		logger.L().Error("failed to write WebSocket message", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
+		return err
+	}
+	return nil
+}
+
+// buildEventMessage builds the message payload for an event
+func (h *WebSocketHandlers) buildEventMessage(event notes.NoteEvent) map[string]any {
+	if event.Type == "deleted" {
+		return map[string]any{
+			"type": event.Type,
+			"note": map[string]any{
+				"id": event.Note.ID.Hex(),
+			},
+		}
+	}
+	return map[string]any{
+		"type": event.Type,
+		"note": event.Note,
+	}
+}
+
+// handleIncomingMessages handles messages received from the client
+func (h *WebSocketHandlers) handleIncomingMessages(c *websocket.Conn, conn *wsConnection) {
 	for {
 		messageType, _, err := c.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.L().Error("WebSocket error", "error", err, "user_id", userID.Hex(), "conn_id", connID)
+				logger.L().Error("WebSocket error", "error", err, "user_id", conn.userID.Hex(), "conn_id", conn.connID)
 			}
 			break
 		}
 
-		// Handle ping messages
 		if messageType == websocket.PingMessage {
-			if err := c.WriteMessage(websocket.PongMessage, nil); err != nil {
-				logger.L().Error("failed to send pong", "error", err, "user_id", userID.Hex())
+			if h.sendPong(c, conn) != nil {
 				break
 			}
 		}
 	}
+}
 
-	logger.L().Info("WebSocket connection closed", "user_id", userID.Hex(), "conn_id", connID)
-	cancelCtx()
+// sendPong sends a pong message in response to a ping
+func (h *WebSocketHandlers) sendPong(c *websocket.Conn, conn *wsConnection) error {
+	if err := c.WriteMessage(websocket.PongMessage, nil); err != nil {
+		logger.L().Error("failed to send pong", "error", err, "user_id", conn.userID.Hex())
+		return err
+	}
+	return nil
 }
 
 // validateJWT validates the JWT token and extracts user information
