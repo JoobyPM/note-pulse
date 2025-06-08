@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/config"
-	"note-pulse/internal/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/notes"
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"note-pulse/internal/handlers/httperr"
+	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 

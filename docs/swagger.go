@@ -13,7 +13,7 @@
 package docs
 
 import (
-	_ "note-pulse/internal/handlers/httperr"
+	_ "note-pulse/cmd/server/handlers/httperr"
 	_ "note-pulse/internal/services/auth"
 	_ "note-pulse/internal/services/notes"
 )

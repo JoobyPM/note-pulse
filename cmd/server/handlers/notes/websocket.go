@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"note-pulse/internal/handlers/httperr"
+	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/notes"
 
