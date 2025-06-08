@@ -35,7 +35,9 @@ func TestRateLimitE2E(t *testing.T) {
 	t.Run("rate_limit_reset", func(t *testing.T) {
 		env2 := SetupTestEnvironmentWithEnv(t, extraEnv)
 
-		signUp(t, env2.Client, env2.BaseURL, testEmail, testPassword)
-		signInExpect(t, env2.Client, env2.BaseURL, testEmail, testPassword, http.StatusOK)
+		// Use a different email for the second environment to avoid conflicts
+		resetTestEmail := "ratelimit-reset@example.com"
+		signUp(t, env2.Client, env2.BaseURL, resetTestEmail, testPassword)
+		signInExpect(t, env2.Client, env2.BaseURL, resetTestEmail, testPassword, http.StatusOK)
 	})
 }

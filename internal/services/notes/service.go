@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
+
+	"note-pulse/internal/utils/sanitize"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -39,15 +42,14 @@ type UpdateNoteRequest struct {
 	Color *string `json:"color,omitempty" validate:"omitempty,hexcolor" example:"#FF6B6B"`
 }
 
-// TODO: Add search route
-
-// TODO: add sorting option
-// TODO: add filter option
-
 // ListNotesRequest represents a list notes request
 type ListNotesRequest struct {
-	Limit  int    `query:"limit" validate:"omitempty,min=1,max=100" example:"50"`
+	Limit  int    `query:"limit"  validate:"omitempty,min=1,max=100" example:"50"`
 	Cursor string `query:"cursor" validate:"omitempty" example:"683cdb8aa96ad71e8e075bd1"`
+	Q      string `query:"q"      validate:"omitempty,min=1,max=256" example:"meeting"`
+	Color  string `query:"color"  validate:"omitempty" example:"#FF0000"`
+	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"`
+	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"` // order is case-insensitive.
 }
 
 // NoteResponse represents a single note response
@@ -55,19 +57,17 @@ type NoteResponse struct {
 	Note *Note `json:"note"`
 }
 
-// TODO: [pagination] add `has_more` field to the response
-// TODO: [pagination] add `total_count` field to the response
-
 // ListNotesResponse represents a list of notes response
 type ListNotesResponse struct {
-	Notes      []*Note `json:"notes"`
-	NextCursor string  `json:"next_cursor,omitempty" example:"683cdb8aa96ad71e8e075bd2"`
+	Notes                []*Note `json:"notes"`
+	NextCursor           string  `json:"next_cursor,omitempty" example:"683cdb8aa96ad71e8e075bd2"`
+	HasMore              bool    `json:"has_more" example:"true"`
+	TotalCount           int64   `json:"total_count" example:"125"`
+	TotalCountUnfiltered int64   `json:"total_count_unfiltered" example:"200"`
 }
 
 // ErrNoteNotFound - note not found in DB
 var ErrNoteNotFound = errors.New("note not found")
-
-// TODO: [validation] idea «Add HTML sanitisation. Decide on required feature set (Markdown? plaintext?) and use `github.com/microcosm-cc/bluemonday` or similar to sanitise on write, not on read.»
 
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
@@ -75,8 +75,8 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 	note := &Note{
 		ID:        bson.NewObjectID(),
 		UserID:    userID,
-		Title:     req.Title,
-		Body:      req.Body,
+		Title:     sanitize.Clean(req.Title),
+		Body:      sanitize.Clean(req.Body),
 		Color:     req.Color,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -95,45 +95,120 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 	return &NoteResponse{Note: note}, nil
 }
 
-// List retrieves notes for a user with pagination
-func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
+// validateListRequest validates the list request parameters
+func (s *Service) validateListRequest(req *ListNotesRequest) error {
 	// Set default limit if not provided
-	limit := req.Limit
-	if limit == 0 {
-		limit = 50
+	if req.Limit == 0 {
+		req.Limit = 50
 	}
 
-	// Parse cursor if provided
-	var after bson.ObjectID
+	// Normalize order field to lowercase for case-insensitive handling
+	if req.Order != "" {
+		req.Order = strings.ToLower(req.Order)
+	}
+
+	// Validate limit - return error instead of silently clipping
+	if req.Limit > 100 {
+		return ErrInvalidLimit
+	}
+
+	// Validate cursor if provided
 	if req.Cursor != "" {
-		var err error
-		after, err = bson.ObjectIDFromHex(req.Cursor)
+		return s.validateCursor(req.Cursor, req.Sort)
+	}
+
+	return nil
+}
+
+// validateCursor validates the cursor format based on sort type
+func (s *Service) validateCursor(cursor, sort string) error {
+	if sort == "title" {
+		// Validate composite cursor format
+		_, err := DecodeCompositeCursor(cursor)
 		if err != nil {
-			return nil, ErrInvalidCursor
+			return ErrInvalidCursor
+		}
+	} else {
+		// Validate ObjectID cursor format
+		_, err := bson.ObjectIDFromHex(cursor)
+		if err != nil {
+			return ErrInvalidCursor
 		}
 	}
+	return nil
+}
 
-	notes, err := s.repo.List(ctx, userID, after, limit)
+// generateNextCursor generates the next cursor for pagination
+func (s *Service) generateNextCursor(notes []*Note, sort string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+
+	last := notes[len(notes)-1]
+	if sort == "title" {
+		// Use composite cursor for title sorting
+		return EncodeCompositeCursor(last.Title, last.ID)
+	}
+	// Use simple ObjectID cursor for other sorts
+	return last.ID.Hex()
+}
+
+// List retrieves notes for a user with pagination
+func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
+	if err := s.validateListRequest(&req); err != nil {
+		return nil, err
+	}
+
+	// Fetch limit+1 to determine if there are more results
+	fetchReq := req
+	fetchReq.Limit = req.Limit + 1
+
+	notes, totalCount, totalCountUnfiltered, err := s.repo.List(ctx, userID, fetchReq)
 	if err != nil {
 		s.log.Error(ErrListNotes.Error(), "error", err, "user_id", userID.Hex())
 		return nil, ErrListNotes
 	}
 
-	response := &ListNotesResponse{
-		Notes: notes,
+	// Determine if there are more results and trim to requested limit
+	hasMore := len(notes) > req.Limit
+	if hasMore {
+		notes = notes[:req.Limit]
 	}
 
-	// Set next cursor if we have more results
-	if len(notes) == limit {
-		response.NextCursor = notes[len(notes)-1].ID.Hex()
+	response := &ListNotesResponse{
+		Notes:                notes,
+		HasMore:              hasMore,
+		TotalCount:           totalCount,
+		TotalCountUnfiltered: totalCountUnfiltered,
+	}
+
+	// Set next cursor only if we have more results
+	if hasMore {
+		response.NextCursor = s.generateNextCursor(notes, req.Sort)
 	}
 
 	return response, nil
 }
 
+// sanitizedUpdateNote creates an UpdateNote with sanitized title and body
+func sanitizedUpdateNote(req UpdateNoteRequest) UpdateNote {
+	patch := UpdateNote(req)
+
+	if patch.Title != nil {
+		sanitized := sanitize.Clean(*patch.Title)
+		patch.Title = &sanitized
+	}
+	if patch.Body != nil {
+		sanitized := sanitize.Clean(*patch.Body)
+		patch.Body = &sanitized
+	}
+
+	return patch
+}
+
 // Update updates a note belonging to the user
 func (s *Service) Update(ctx context.Context, userID, noteID bson.ObjectID, req UpdateNoteRequest) (*NoteResponse, error) {
-	patch := UpdateNote(req)
+	patch := sanitizedUpdateNote(req)
 
 	updatedNote, err := s.repo.Update(ctx, userID, noteID, patch)
 	if err != nil {

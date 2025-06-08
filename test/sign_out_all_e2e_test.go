@@ -9,11 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const (
-	signInEndpoint     = "/api/v1/auth/sign-in"
-	signOutAllEndpoint = "/api/v1/auth/sign-out-all"
-)
-
 var testCredentials = map[string]string{
 	"email":    "signoutall@test.com",
 	"password": "Password123",

@@ -3,21 +3,34 @@
 package test
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const (
 	notesPath = "/api/v1/notes"
 	authPath  = "/api/v1/auth"
+	testColor = "#FF0000"
 )
+
+func getAuthHeaders(t *testing.T, token string) map[string]string {
+	t.Helper()
+	return map[string]string{"Authorization": "Bearer " + token}
+}
 
 // NoteParams holds the parameters for creating a note
 type NoteParams struct {
@@ -31,7 +44,7 @@ func TestNotesE2E(t *testing.T) {
 	testEmail := "noteuser@example.com"
 	testPassword := "Password123"
 	authToken := setupTestUser(t, env, testEmail, testPassword)
-	headers := map[string]string{"Authorization": "Bearer " + authToken}
+	headers := getAuthHeaders(t, authToken)
 
 	var noteAID string
 
@@ -39,7 +52,7 @@ func TestNotesE2E(t *testing.T) {
 		noteAID = createAndVerifyNote(t, env, headers, NoteParams{
 			Title: "A",
 			Body:  "Note A content",
-			Color: "#FF0000",
+			Color: testColor,
 		})
 	})
 
@@ -55,8 +68,26 @@ func TestNotesE2E(t *testing.T) {
 		testPaginationWith120Notes(t, env, headers)
 	})
 
+	t.Run("test_advanced_listing_features", func(t *testing.T) {
+		testAdvancedListingFeatures(t, env, headers)
+	})
+
 	t.Run("test_note_not_found_cross_user", func(t *testing.T) {
 		testCrossUserAuthorization(t, env, testPassword, noteAID)
+	})
+
+	t.Run("test_compound_indexes_exist", func(t *testing.T) {
+		// Ensure notes repository is initialized by creating a note first
+		_ = createAndVerifyNote(t, env, headers, NoteParams{
+			Title: "Index Test Note",
+			Body:  "This note ensures the notes repository is initialized",
+			Color: testColor,
+		})
+		testCompoundIndexesExist(t, env)
+	})
+
+	t.Run("test_title_pagination_cursor", func(t *testing.T) {
+		testTitlePaginationCursor(t, env, headers)
 	})
 }
 
@@ -103,7 +134,7 @@ func testWebSocketCRUDOperations(t *testing.T, env *TestEnvironment, authToken s
 	noteBID := createNoteAndVerifyWebSocketEvent(t, env, headers, messages, NoteParams{
 		Title: "B",
 		Body:  "Note B content",
-		Color: "#00FF00",
+		Color: testColor,
 	}, "created")
 
 	// Update note A and verify WebSocket event
@@ -238,7 +269,7 @@ func testPaginationPages(t *testing.T, env *TestEnvironment, headers map[string]
 // testCrossUserAuthorization tests cross-user authorization
 func testCrossUserAuthorization(t *testing.T, env *TestEnvironment, testPassword, noteAID string) {
 	otherToken := setupTestUser(t, env, "otheruser@example.com", testPassword)
-	otherHeaders := map[string]string{"Authorization": "Bearer " + otherToken}
+	otherHeaders := getAuthHeaders(t, otherToken)
 
 	testUnauthorizedNoteAccess(t, env, otherHeaders, noteAID, "PATCH", map[string]any{"title": "Hacked"})
 	testUnauthorizedNoteAccess(t, env, otherHeaders, noteAID, "DELETE", nil)
@@ -310,4 +341,265 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 	require.NotEmpty(t, token)
 
 	return token
+}
+
+// testAdvancedListingFeatures tests the new search, filter, sort, and pagination features
+func testAdvancedListingFeatures(t *testing.T, env *TestEnvironment, _ map[string]string) {
+	// Use a separate user for this test to ensure isolation
+	advancedTestToken := setupTestUser(t, env, "advancedtest@example.com", "Password123")
+	advancedHeaders := getAuthHeaders(t, advancedTestToken)
+
+	// Create test notes with different colors and content
+	redNote1 := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Meeting Notes",
+		Body:  "Important meeting about quarterly targets",
+		Color: testColor,
+	})
+
+	redNote2 := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Project Planning",
+		Body:  "Meeting to discuss project milestones",
+		Color: testColor,
+	})
+
+	blueNote := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Shopping List",
+		Body:  "Groceries and household items",
+		Color: "#0000FF", // Blue color instead of red
+	})
+
+	// table-driven sub-tests cut duplicate logic
+	cases := []struct {
+		name       string
+		query      string
+		assertions func(resp map[string]any)
+	}{
+		{
+			"color_filter",
+			"?color=%23FF0000",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 2, "should find 2 red notes")
+				assert.False(t, resp["has_more"].(bool))
+				assert.Equal(t, float64(2), resp["total_count"].(float64))
+				for _, n := range notes {
+					assert.Equal(t, testColor, n.(map[string]any)["color"])
+				}
+			},
+		},
+		{
+			"search_functionality",
+			"?q=meeting",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 2, "should find 2 notes containing 'meeting'")
+				for _, n := range notes {
+					m := n.(map[string]any)
+					content := m["title"].(string) + " " + m["body"].(string)
+					assert.True(t, strings.Contains(strings.ToLower(content), "meeting"))
+				}
+			},
+		},
+		{
+			"sort_by_title_asc",
+			"?sort=title&order=asc",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.GreaterOrEqual(t, len(notes), 3)
+				assert.Equal(t, "Meeting Notes", notes[0].(map[string]any)["title"])
+			},
+		},
+		{
+			"combined_filters_and_metadata",
+			"?color=%23FF0000&q=meeting&sort=title&order=desc&limit=1",
+			func(resp map[string]any) {
+				notes := resp["notes"].([]any)
+				assert.Len(t, notes, 1)
+				assert.True(t, resp["has_more"].(bool))
+				assert.NotEmpty(t, resp["next_cursor"])
+				n := notes[0].(map[string]any)
+				assert.Equal(t, testColor, n["color"])
+				content := n["title"].(string) + " " + n["body"].(string)
+				assert.True(t, strings.Contains(strings.ToLower(content), "meeting"))
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := makeHTTPRequest(t, "GET", env.BaseURL+notesPath+c.query, nil, advancedHeaders, http.StatusOK)
+			c.assertions(resp)
+		})
+	}
+
+	// Clean up test notes
+	for _, id := range []string{redNote1, redNote2, blueNote} {
+		makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+id, nil, advancedHeaders, http.StatusNoContent)
+	}
+}
+
+// testCompoundIndexesExist verifies that the required compound indexes are created
+func testCompoundIndexesExist(t *testing.T, _ *TestEnvironment) {
+	// Connect to MongoDB using environment variables
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mongoURI := os.Getenv("MONGO_URI")
+	require.NotEmpty(t, mongoURI, "MONGO_URI environment variable should be set")
+
+	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
+	require.NoError(t, err)
+	defer func() {
+		if err := client.Disconnect(ctx); err != nil {
+			t.Errorf("failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+
+	dbName := os.Getenv("MONGO_DB_NAME")
+	if dbName == "" {
+		dbName = "e2e" // fallback to default
+	}
+
+	db := client.Database(dbName)
+	collection := db.Collection("notes")
+
+	// List all indexes
+	cursor, err := collection.Indexes().List(ctx)
+	require.NoError(t, err)
+	defer cursor.Close(ctx)
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	require.NoError(t, err)
+
+	// Verify we have the expected number of indexes (at least the 3 compound indexes + default _id)
+	assert.GreaterOrEqual(t, len(indexes), 4, "should have at least 4 indexes including compound indexes")
+
+	// Expected index names that should exist
+	expectedIndexNames := []string{
+		"user_id_1__id_-1",               // Basic pagination index
+		"user_id_1_updated_at_-1__id_-1", // Updated_at sorting index
+		"user_id_1_created_at_-1__id_-1", // Created_at sorting index
+	}
+
+	// Check each expected index exists by name
+	for _, expectedName := range expectedIndexNames {
+		found := false
+		for _, index := range indexes {
+			if name, ok := index["name"].(string); ok && name == expectedName {
+				t.Logf("Found expected index: %s", expectedName)
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected compound index '%s' not found", expectedName)
+	}
+}
+
+func getFirstTwoNotes(t *testing.T, url string, titleHeaders map[string]string) (map[string]any, map[string]any, map[string]any) {
+	shouldReturn2Notes := "should return 2 notes"
+	shouldHaveMorePages := "should have more pages"
+	shouldHaveNextCursor := "should have next cursor"
+	resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+
+	respNotes := resp["notes"].([]any)
+	assert.Len(t, respNotes, 2, shouldReturn2Notes)
+	assert.True(t, resp["has_more"].(bool), shouldHaveMorePages)
+	assert.NotEmpty(t, resp["next_cursor"], shouldHaveNextCursor)
+
+	firstNote := respNotes[0].(map[string]any)
+	secondNote := respNotes[1].(map[string]any)
+
+	return resp, firstNote, secondNote
+}
+
+// testTitlePaginationCursor tests title-based pagination with composite cursors
+func testTitlePaginationCursor(t *testing.T, env *TestEnvironment, _ map[string]string) {
+	dateNote := "Date Note"
+
+	// Use a separate user for this test to ensure isolation
+	titleTestToken := setupTestUser(t, env, "titletest@example.com", "Password123")
+	titleHeaders := getAuthHeaders(t, titleTestToken)
+
+	// Create notes with different titles to test alphabetical ordering
+	notes := []NoteParams{
+		{Title: "Apple Note", Body: "About apples", Color: testColor},
+		{Title: "Banana Note", Body: "About bananas", Color: testColor},
+		{Title: "Cherry Note", Body: "About cherries", Color: testColor},
+		{Title: dateNote, Body: "About dates", Color: testColor},
+		{Title: "Elderberry Note", Body: "About elderberries", Color: testColor},
+	}
+
+	// Create all notes
+	for _, note := range notes {
+		createAndVerifyNote(t, env, titleHeaders, note)
+	}
+
+	// Test first page with title sorting (ascending)
+	t.Run("first_page_title_asc", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=2"
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
+
+		// First two notes should be "Apple Note" and "Banana Note"
+		assert.Equal(t, "Apple Note", firstNote["title"])
+		assert.Equal(t, "Banana Note", secondNote["title"])
+	})
+
+	// Test second page using cursor from first page
+	t.Run("second_page_title_asc", func(t *testing.T) {
+		// Get first page to retrieve cursor
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=2"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+		cursor := resp["next_cursor"].(string)
+		require.NotEmpty(t, cursor)
+
+		// Use cursor for second page
+		url = env.BaseURL + notesPath + "?sort=title&order=asc&limit=2&cursor=" + cursor
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
+
+		// Next two notes should be "Cherry Note" and "Date Note"
+		assert.Equal(t, "Cherry Note", firstNote["title"])
+		assert.Equal(t, dateNote, secondNote["title"])
+	})
+
+	// Test descending order pagination
+	t.Run("first_page_title_desc", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=desc&limit=2"
+		_, firstNote, secondNote := getFirstTwoNotes(t, url, titleHeaders)
+
+		// First two notes should be "Elderberry Note" and "Date Note" (reverse order)
+		assert.Equal(t, "Elderberry Note", firstNote["title"])
+		assert.Equal(t, dateNote, secondNote["title"])
+	})
+
+	// Test that cursor format is base64 encoded JSON for title sorting
+	t.Run("cursor_format_validation", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=asc&limit=1"
+		resp := makeHTTPRequest(t, "GET", url, nil, titleHeaders, http.StatusOK)
+		cursor := resp["next_cursor"].(string)
+		require.NotEmpty(t, cursor)
+
+		// Cursor should be base64 encoded
+		decoded, err := base64.StdEncoding.DecodeString(cursor)
+		require.NoError(t, err, "cursor should be valid base64")
+
+		// Should decode to JSON with title and id fields
+		var cursorData map[string]any
+		err = json.Unmarshal(decoded, &cursorData)
+		require.NoError(t, err, "cursor should be valid JSON")
+
+		assert.Contains(t, cursorData, "title", "cursor should contain title field")
+		assert.Contains(t, cursorData, "id", "cursor should contain id field")
+		assert.IsType(t, "", cursorData["title"], "title should be string")
+		assert.IsType(t, "", cursorData["id"], "id should be string")
+	})
+
+	// Clean up test notes
+	listResp := makeHTTPRequest(t, "GET", env.BaseURL+notesPath, nil, titleHeaders, http.StatusOK)
+	respNotes := listResp["notes"].([]any)
+	for _, note := range respNotes {
+		noteMap := note.(map[string]any)
+		noteID := noteMap["id"].(string)
+		makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+noteID, nil, titleHeaders, http.StatusNoContent)
+	}
 }

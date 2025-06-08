@@ -16,9 +16,11 @@ import (
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 var (
+	testColor        = "#FF0000"
 	ErrRepositoryMsg = "repository error"
 	ErrDBMsg         = "db error"
 	UpdateNoteMsg    = "notes.UpdateNote"
+	mockNote         = mock.AnythingOfType("*notes.Note")
 )
 
 // MockNotesRepo is a mock implementation of Repository
@@ -31,12 +33,12 @@ func (m *MockNotesRepo) Create(ctx context.Context, note *Note) error {
 	return args.Error(0)
 }
 
-func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.ObjectID, limit int) ([]*Note, error) {
-	args := m.Called(ctx, userID, after, limit)
+func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest) ([]*Note, int64, int64, error) {
+	args := m.Called(ctx, userID, filter)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, 0, 0, args.Error(3)
 	}
-	return args.Get(0).([]*Note), args.Error(1)
+	return args.Get(0).([]*Note), args.Get(1).(int64), args.Get(2).(int64), args.Error(3)
 }
 
 func (m *MockNotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error) {
@@ -76,10 +78,10 @@ func TestServiceCreate(t *testing.T) {
 			req: CreateNoteRequest{
 				Title: "Test Note",
 				Body:  "Test body",
-				Color: "#FF0000",
+				Color: testColor,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(nil)
+				repo.On("Create", mock.Anything, mockNote).Return(nil)
 				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
 					return ev.Type == "created"
 				})).Return()
@@ -93,7 +95,7 @@ func TestServiceCreate(t *testing.T) {
 				Body:  "Test body",
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New(ErrDBMsg))
+				repo.On("Create", mock.Anything, mockNote).Return(errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrCreateNote.Error(),
@@ -169,12 +171,16 @@ func TestServiceList(t *testing.T) {
 			name: "successful list with default limit",
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(mockNotes, nil)
+				expectedReq := ListNotesRequest{Limit: 51}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes, int64(100), int64(200), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 2)
 				assert.Empty(t, resp.NextCursor) // Less than limit, no next cursor
+				assert.False(t, resp.HasMore)    // Less than limit, no more pages
+				assert.Equal(t, int64(100), resp.TotalCount)
+				assert.Equal(t, int64(200), resp.TotalCountUnfiltered)
 			},
 		},
 		{
@@ -183,12 +189,16 @@ func TestServiceList(t *testing.T) {
 				Limit: 25,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 25).Return(mockNotes[:1], nil)
+				expectedReq := ListNotesRequest{Limit: 26}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes[:1], int64(50), int64(80), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 1)
 				assert.Empty(t, resp.NextCursor)
+				assert.False(t, resp.HasMore)
+				assert.Equal(t, int64(50), resp.TotalCount)
+				assert.Equal(t, int64(80), resp.TotalCountUnfiltered)
 			},
 		},
 		{
@@ -198,13 +208,89 @@ func TestServiceList(t *testing.T) {
 				Cursor: noteID1.Hex(),
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, noteID1, 2).Return(mockNotes, nil)
+				// Return 3 notes (limit+1) to simulate having more data
+				threeNotes := []*Note{mockNotes[0], mockNotes[1], mockNotes[0]} // reuse first note as third
+				expectedReq := ListNotesRequest{Limit: 3, Cursor: noteID1.Hex()}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(threeNotes, int64(200), int64(300), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 2)
-				assert.Equal(t, noteID2.Hex(), resp.NextCursor) // Full page, has next cursor
+				assert.Equal(t, noteID2.Hex(), resp.NextCursor) // Has more data, so has next cursor
+				assert.True(t, resp.HasMore)                    // Has more data
+				assert.Equal(t, int64(200), resp.TotalCount)
+				assert.Equal(t, int64(300), resp.TotalCountUnfiltered)
 			},
+		},
+		{
+			name: "title sorting with pagination - no duplicates or gaps",
+			req: ListNotesRequest{
+				Limit: 1,
+				Sort:  "title",
+				Order: "asc",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// Mock out-of-order _id but ordered by title
+				note1 := &Note{
+					ID:        noteID2, // Note: ID2 comes first despite being Note 1 alphabetically
+					UserID:    userID,
+					Title:     "A First Note", // Alphabetically first
+					Body:      "Body A",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+				note2 := &Note{
+					ID:        noteID1, // Note: ID1 comes second
+					UserID:    userID,
+					Title:     "B Second Note", // Alphabetically second
+					Body:      "Body B",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+
+				// Return limit+1 items to simulate having more data
+				expectedReq := ListNotesRequest{Limit: 2, Sort: "title", Order: "asc"}
+				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{note1, note2}, int64(2), int64(5), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 1)
+				assert.Equal(t, "A First Note", resp.Notes[0].Title)
+				// For title sorting, cursor should be base64 encoded JSON, not just ObjectID
+				assert.NotEqual(t, noteID2.Hex(), resp.NextCursor, "should use composite cursor for title sorting")
+				assert.NotEmpty(t, resp.NextCursor, "should have composite cursor")
+				assert.True(t, resp.HasMore)
+				assert.Equal(t, int64(2), resp.TotalCount)
+				assert.Equal(t, int64(5), resp.TotalCountUnfiltered)
+			},
+		},
+		{
+			name: "security test - regex metacharacters escaped",
+			req: ListNotesRequest{
+				Q: ".^$",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				expectedReq := ListNotesRequest{Limit: 51, Q: ".^$"}
+				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{}, int64(0), int64(10), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 0)
+				assert.False(t, resp.HasMore)
+				assert.Equal(t, int64(0), resp.TotalCount)
+				assert.Equal(t, int64(10), resp.TotalCountUnfiltered)
+			},
+		},
+		{
+			name: "limit validation error",
+			req: ListNotesRequest{
+				Limit: 101, // Exceeds max of 100
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrInvalidLimit.Error(),
 		},
 		{
 			name: ErrInvalidCursor.Error(),
@@ -221,7 +307,8 @@ func TestServiceList(t *testing.T) {
 			name: ErrRepositoryMsg,
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New(ErrDBMsg))
+				expectedReq := ListNotesRequest{Limit: 51}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(nil, int64(0), int64(0), errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrListNotes.Error(),
@@ -454,6 +541,157 @@ func TestServiceCrossUserSafety(t *testing.T) {
 				err := service.Delete(context.Background(), user2, noteID)
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), ErrNoteNotFound.Error())
+			}
+
+			repo.AssertExpectations(t)
+			bus.AssertExpectations(t)
+		})
+	}
+}
+
+func TestServiceHTMLSanitization(t *testing.T) {
+	userID := bson.NewObjectID()
+	noteID := bson.NewObjectID()
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name        string
+		operation   string
+		dirtyTitle  string
+		dirtyBody   string
+		cleanTitle  string
+		cleanBody   string
+		description string
+	}{
+		{
+			name:        "create - strips script tags",
+			operation:   "create",
+			dirtyTitle:  `<script>alert('xss')</script>Meeting Notes`,
+			dirtyBody:   `<script>alert('body')</script>Meeting content`,
+			cleanTitle:  "Meeting Notes",
+			cleanBody:   "Meeting content",
+			description: "should remove script tags completely",
+		},
+		{
+			name:        "create - strips image with onerror",
+			operation:   "create",
+			dirtyTitle:  `<img src=x onerror=alert(1)>Important Note`,
+			dirtyBody:   `<img src=x onerror=alert('xss')>Important content`,
+			cleanTitle:  "Important Note",
+			cleanBody:   "Important content",
+			description: "should remove dangerous image tags",
+		},
+		{
+			name:        "create - strips all HTML tags but preserves text",
+			operation:   "create",
+			dirtyTitle:  `<div><p>Hello <b>world</b></p></div>`,
+			dirtyBody:   `<p>Body with <a href="http://evil.com">link</a> and <br> breaks</p>`,
+			cleanTitle:  "Hello world",
+			cleanBody:   "Body with link and breaks",
+			description: "should strip all HTML tags but keep text content with proper spacing",
+		},
+		{
+			name:        "create - preserves markdown-like syntax",
+			operation:   "create",
+			dirtyTitle:  `# Heading with **bold** text`,
+			dirtyBody:   `[link](http://example.com) and **bold** text`,
+			cleanTitle:  "# Heading with **bold** text",
+			cleanBody:   "[link](http://example.com) and **bold** text",
+			description: "should preserve markdown syntax which is not HTML",
+		},
+		{
+			name:        "update - strips script tags",
+			operation:   "update",
+			dirtyTitle:  `<script>alert('update')</script>Updated Notes`,
+			dirtyBody:   `<script>evil();</script>Updated content`,
+			cleanTitle:  "Updated Notes",
+			cleanBody:   "Updated content",
+			description: "should sanitize updates too",
+		},
+		{
+			name:        "update - strips dangerous attributes",
+			operation:   "update",
+			dirtyTitle:  `<p onclick="alert('xss')">Safe title</p>`,
+			dirtyBody:   `<div onmouseover="steal()">Safe body</div>`,
+			cleanTitle:  "Safe title",
+			cleanBody:   "Safe body",
+			description: "should remove dangerous event handlers",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockNotesRepo)
+			bus := new(MockBus)
+
+			service := NewService(repo, bus, silentLogger)
+
+			switch tt.operation {
+			case "create":
+				// Mock the repo to capture what was actually passed to Create
+				var capturedNote *Note
+				repo.On("Create", mock.Anything, mockNote).Run(func(args mock.Arguments) {
+					capturedNote = args.Get(1).(*Note)
+				}).Return(nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "created"
+				})).Return()
+
+				req := CreateNoteRequest{
+					Title: tt.dirtyTitle,
+					Body:  tt.dirtyBody,
+					Color: testColor,
+				}
+
+				resp, err := service.Create(context.Background(), userID, req)
+
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+				assert.NotNil(t, capturedNote, "should have captured the note passed to repo")
+
+				// Verify sanitization happened
+				assert.Equal(t, tt.cleanTitle, capturedNote.Title, "title should be sanitized: %s", tt.description)
+				assert.Equal(t, tt.cleanBody, capturedNote.Body, "body should be sanitized: %s", tt.description)
+
+				// Also check the response
+				assert.Equal(t, tt.cleanTitle, resp.Note.Title)
+				assert.Equal(t, tt.cleanBody, resp.Note.Body)
+
+			case "update":
+				// Mock the repo to capture what was actually passed to Update
+				var capturedPatch UpdateNote
+				mockUpdatedNote := &Note{
+					ID:        noteID,
+					UserID:    userID,
+					Title:     tt.cleanTitle,
+					Body:      tt.cleanBody,
+					Color:     testColor,
+					CreatedAt: now.Add(-time.Hour),
+					UpdatedAt: now,
+				}
+
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType(UpdateNoteMsg)).Run(func(args mock.Arguments) {
+					capturedPatch = args.Get(3).(UpdateNote)
+				}).Return(mockUpdatedNote, nil)
+				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
+					return ev.Type == "updated"
+				})).Return()
+
+				req := UpdateNoteRequest{
+					Title: &tt.dirtyTitle,
+					Body:  &tt.dirtyBody,
+				}
+
+				resp, err := service.Update(context.Background(), userID, noteID, req)
+
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+
+				// Verify sanitization happened in the patch
+				assert.NotNil(t, capturedPatch.Title, "title should be present in patch")
+				assert.NotNil(t, capturedPatch.Body, "body should be present in patch")
+				assert.Equal(t, tt.cleanTitle, *capturedPatch.Title, "title should be sanitized: %s", tt.description)
+				assert.Equal(t, tt.cleanBody, *capturedPatch.Body, "body should be sanitized: %s", tt.description)
 			}
 
 			repo.AssertExpectations(t)

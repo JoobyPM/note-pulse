@@ -1,7 +1,9 @@
 package crypto
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"regexp"
 
 	"github.com/go-playground/validator/v10"
@@ -10,11 +12,20 @@ import (
 
 // Pre-compiled regexes for password strength validation
 var (
-	reUpper             = regexp.MustCompile(`[A-Z]`)
-	reLower             = regexp.MustCompile(`[a-z]`)
-	reDigit             = regexp.MustCompile(`[0-9]`)
-	ErrPasswordStrength = errors.New("password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one digit")
+	reUpper = regexp.MustCompile(`[A-Z]`)
+	reLower = regexp.MustCompile(`[a-z]`)
+	reDigit = regexp.MustCompile(`[0-9]`)
+
+	// ErrPasswordWeak is returned when a supplied password does not satisfy
+	// the minimum strength rules (≥8 chars, 1 upper, 1 lower, 1 digit).
+	ErrPasswordWeak = errors.New("password is too weak")
 )
+
+type passwordErrKey struct{}
+
+// PasswordErrKey is the single global key the password rule
+// will use to drop ErrPasswordWeak into the ctx.
+var PasswordErrKey passwordErrKey
 
 // HashPassword hashes a password using bcrypt with the given cost
 func HashPassword(password string, cost int) (string, error) {
@@ -44,18 +55,23 @@ func IsStrong(password string) bool {
 	return hasUpper && hasLower && hasDigit
 }
 
-// cryptoPasswordRule validates password strength for the validator package
-func cryptoPasswordRule(fl validator.FieldLevel) bool {
-	password := fl.Field().String()
-	return IsStrong(password)
-}
-
 // RegisterPasswordValidator registers the "password" validation tag with the validator
 func RegisterPasswordValidator(v *validator.Validate) error {
-	// Try to register
-	err := v.RegisterValidation("password", cryptoPasswordRule)
+	err := v.RegisterValidationCtx("password",
+		func(ctx context.Context, fl validator.FieldLevel) bool {
+			pwd := fl.Field().String()
+
+			if IsStrong(pwd) {
+				return true
+			}
+
+			if bucket, ok := ctx.Value(PasswordErrKey).(*error); ok && bucket != nil {
+				*bucket = ErrPasswordWeak
+			}
+			return false
+		})
 	if err != nil {
-		return ErrPasswordStrength
+		return fmt.Errorf("failed to register password validator: %w", err)
 	}
 	return nil
 }

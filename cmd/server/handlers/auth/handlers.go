@@ -7,6 +7,7 @@ import (
 	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
+	util "note-pulse/internal/utils"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -52,7 +53,7 @@ func (h *Handlers) SignUp(c *fiber.Ctx) error {
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := h.validator.Struct(req); err != nil {
+	if err := util.ValidateCtx(c.UserContext(), h.validator, req); err != nil {
 		logger.L().Warn("signup request validation failed", "handler", "SignUp", "error", err)
 		return httperr.InvalidInput(err)
 	}
@@ -87,7 +88,7 @@ func (h *Handlers) SignIn(c *fiber.Ctx) error {
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := h.validator.Struct(req); err != nil {
+	if err := util.ValidateCtx(c.UserContext(), h.validator, req); err != nil {
 		logger.L().Warn("signin request validation failed", "handler", "SignIn", "error", err)
 		return httperr.InvalidInput(err)
 	}
@@ -121,7 +122,7 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := h.validator.Struct(&req); err != nil {
+	if err := util.ValidateCtx(c.UserContext(), h.validator, req); err != nil {
 		logger.L().Warn("refresh request validation failed", "handler", "Refresh", "error", err)
 		return httperr.InvalidInput(err)
 	}
@@ -172,7 +173,7 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := h.validator.Struct(&req); err != nil {
+	if err := util.ValidateCtx(c.UserContext(), h.validator, req); err != nil {
 		logger.L().Warn("signout request validation failed", "handler", "SignOut", "error", err)
 		return httperr.InvalidInput(err)
 	}
