@@ -3,92 +3,77 @@
 package test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestRefreshTokenRotation_E2E(t *testing.T) {
+const (
+	signUpEndpoint  = "/api/v1/auth/sign-up"
+	refreshEndpoint = "/api/v1/auth/refresh"
+)
+
+func TestRefreshTokenRotationE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 
-	t.Log("step 1: sign up a new user")
-	signUpReq := map[string]string{
-		"email":    "rotation@test.com",
-		"password": "Password123",
+	steps := []HTTPJSONStep{
+		{
+			Name:   "sign up a new user",
+			Method: "POST",
+			URL:    signUpEndpoint,
+			Body: map[string]string{
+				"email":    "rotation@test.com",
+				"password": "Password123",
+			},
+			ExpectedStatus: http.StatusCreated,
+			Validator:      AuthTokenValidator("refresh_token"),
+		},
 	}
 
-	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpReq, nil)
-	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
-		}
-	}()
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	results := ExecuteHTTPJSONSteps(t, steps, env.BaseURL)
+	initialRefreshToken := GetTokenFromResponse(t, results[0], "refresh_token")
 
-	var signUpResp map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&signUpResp))
-
-	initialRefreshToken := signUpResp["refresh_token"].(string)
-	require.NotEmpty(t, initialRefreshToken)
-
-	t.Log("step 2: use refresh token to get new tokens (rotation should occur)")
-	refreshReq := map[string]string{
-		"refresh_token": initialRefreshToken,
+	refreshSteps := []HTTPJSONStep{
+		{
+			Name:   "use refresh token to get new tokens (rotation should occur)",
+			Method: "POST",
+			URL:    refreshEndpoint,
+			Body: map[string]string{
+				"refresh_token": initialRefreshToken,
+			},
+			ExpectedStatus: http.StatusOK,
+			Validator:      AuthTokenValidator("refresh_token"),
+		},
 	}
 
-	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshReq, nil)
-	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
-		}
-	}()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var refreshResp map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&refreshResp))
-
-	newRefreshToken := refreshResp["refresh_token"].(string)
-	require.NotEmpty(t, newRefreshToken)
+	refreshResults := ExecuteHTTPJSONSteps(t, refreshSteps, env.BaseURL)
+	newRefreshToken := GetTokenFromResponse(t, refreshResults[0], "refresh_token")
 
 	assert.NotEqual(t, initialRefreshToken, newRefreshToken, "Refresh token should have rotated")
 
-	t.Log("step 3: try to use the OLD refresh token again")
-	oldRefreshReq := map[string]string{
-		"refresh_token": initialRefreshToken,
+	invalidationSteps := []HTTPJSONStep{
+		{
+			Name:   "try to use the OLD refresh token again",
+			Method: "POST",
+			URL:    refreshEndpoint,
+			Body: map[string]string{
+				"refresh_token": initialRefreshToken,
+			},
+			ExpectedStatus: http.StatusUnauthorized,
+			Validator:      ErrorMessageValidator("Unauthorized"),
+		},
+		{
+			Name:   "verify the NEW refresh token still works",
+			Method: "POST",
+			URL:    refreshEndpoint,
+			Body: map[string]string{
+				"refresh_token": newRefreshToken,
+			},
+			ExpectedStatus: http.StatusOK,
+			Validator:      AuthTokenValidator("refresh_token"),
+		},
 	}
 
-	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", oldRefreshReq, nil)
-	require.NoError(t, err, "should refresh token")
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
-		}
-	}()
-
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
-		"Old refresh token should be immediately invalidated after rotation")
-
-	var errorResp map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errorResp))
-	assert.Contains(t, errorResp["error"].(string), "Unauthorized",
-		"Error message should indicate invalid token - Unauthorized: but got - "+errorResp["error"].(string))
-
-	t.Log("step 4: verify the NEW refresh token still works")
-	newRefreshReq := map[string]string{
-		"refresh_token": newRefreshToken,
-	}
-
-	resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", newRefreshReq, nil)
-	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
-		}
-	}()
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "New refresh token should still be valid")
+	ExecuteHTTPJSONSteps(t, invalidationSteps, env.BaseURL)
 }

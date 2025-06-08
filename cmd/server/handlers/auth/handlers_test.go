@@ -1,27 +1,29 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"net/http/httptest"
+	"net/http"
 	"testing"
 	"time"
 
-	"note-pulse/cmd/server/handlers/httperr"
-	"note-pulse/internal/config"
-	"note-pulse/internal/logger"
+	"note-pulse/cmd/server/testutil"
 	"note-pulse/internal/services/auth"
-	"note-pulse/internal/utils/crypto"
 
-	"github.com/go-playground/validator/v10"
-	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+)
+
+const (
+	signUpEndpoint = "/api/v1/auth/sign-up"
+	signInEndpoint = "/api/v1/auth/sign-in"
+	meEndpoint     = "/api/v1/me"
+	rateLimitIP    = "192.168.1.1"
+	testEmail      = "test@example.com"
+	testPassword   = "Password123"
 )
 
 // MockAuthService mocks the auth service
@@ -63,57 +65,58 @@ func (m *MockAuthService) SignOutAll(ctx context.Context, userID bson.ObjectID) 
 	return args.Error(0)
 }
 
-func setupTestApp(service *MockAuthService) *fiber.App {
-	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
-	if _, err := logger.Init(cfg); err != nil {
-		panic(err)
-	}
+// AuthTestSetup contains common test setup data
+type AuthTestSetup struct {
+	MockService *MockAuthService
+	App         *fiber.App
+	TestUser    *auth.User
+	TestToken   string
+}
 
-	v := validator.New()
-	if err := crypto.RegisterPasswordValidator(v); err != nil {
-		panic(err)
-	}
+// SetupAuthTest creates a common auth test setup
+func SetupAuthTest(t *testing.T) *AuthTestSetup {
+	t.Helper()
 
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
+	mockService := &MockAuthService{}
+	app := testutil.CreateTestApp(t)
+	validator := testutil.CreateTestValidator(t)
 
-	h := NewHandlers(service, v)
+	h := NewHandlers(mockService, validator)
 
 	v1 := app.Group("/api/v1")
 	authGrp := v1.Group("/auth")
 
-	// Rate limiter for sign-in (for testing)
-	limiterMW := limiter.New(limiter.Config{
-		Max:        2, // allow only 2 requests for testing
-		Expiration: 1 * time.Minute,
-		LimitReached: func(c *fiber.Ctx) error {
-			return httperr.Fail(httperr.ErrTooManyRequests)
-		},
-	})
+	// Add rate limiter for sign-in (for testing)
+	rateLimiter := testutil.CreateRateLimiter(2, 1*time.Minute)
 
 	authGrp.Post("/sign-up", h.SignUp)
-	authGrp.Post("/sign-in", limiterMW, h.SignIn)
+	authGrp.Post("/sign-in", rateLimiter, h.SignIn)
 
-	return app
+	now := time.Now().UTC()
+	testUser := &auth.User{
+		ID:        bson.NewObjectID(),
+		Email:     testEmail,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	return &AuthTestSetup{
+		MockService: mockService,
+		App:         app,
+		TestUser:    testUser,
+		TestToken:   "mock-jwt-token",
+	}
 }
 
-func setupTestAppWithJWT(service *MockAuthService) *fiber.App {
-	cfg := config.Config{LogLevel: "debug", LogFormat: "text"}
-	if _, err := logger.Init(cfg); err != nil {
-		panic(err)
-	}
+// SetupAuthTestWithJWT creates auth test setup with JWT middleware
+func SetupAuthTestWithJWT(t *testing.T) *AuthTestSetup {
+	t.Helper()
 
-	v := validator.New()
-	if err := crypto.RegisterPasswordValidator(v); err != nil {
-		panic(err)
-	}
+	mockService := &MockAuthService{}
+	app := testutil.CreateTestApp(t)
+	validator := testutil.CreateTestValidator(t)
 
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-
-	h := NewHandlers(service, v)
+	h := NewHandlers(mockService, validator)
 
 	v1 := app.Group("/api/v1")
 	authGrp := v1.Group("/auth")
@@ -123,27 +126,7 @@ func setupTestAppWithJWT(service *MockAuthService) *fiber.App {
 
 	// JWT middleware and protected route for testing
 	jwtSecret := "test-secret-with-32-plus-characters"
-	jwtMW := jwtware.New(jwtware.Config{
-		SigningKey: jwtware.SigningKey{Key: []byte(jwtSecret)},
-		SuccessHandler: func(c *fiber.Ctx) error {
-			// Extract claims
-			token := c.Locals("user").(*jwt.Token)
-			claims := token.Claims.(jwt.MapClaims)
-
-			userID, ok := claims["user_id"].(string)
-			if !ok {
-				return httperr.Fail(httperr.E{Status: 401, Message: "Invalid token: missing user_id"})
-			}
-			userEmail, ok := claims["email"].(string)
-			if !ok {
-				return httperr.Fail(httperr.E{Status: 401, Message: "Invalid token: missing email"})
-			}
-
-			c.Locals("userID", userID)
-			c.Locals("userEmail", userEmail)
-			return c.Next()
-		},
-	})
+	jwtMW := testutil.SetupJWTMiddleware(jwtSecret)
 
 	protected := v1.Group("/me", jwtMW)
 	protected.Get("/", func(c *fiber.Ctx) error {
@@ -153,211 +136,183 @@ func setupTestAppWithJWT(service *MockAuthService) *fiber.App {
 		})
 	})
 
-	return app
-}
-
-func TestSignUp_Success(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestApp(mockService)
 	now := time.Now().UTC()
-
-	user := &auth.User{
+	testUser := &auth.User{
 		ID:        bson.NewObjectID(),
-		Email:     "test@example.com",
+		Email:     testEmail,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
 
-	mockService.On("SignUp", mock.Anything, auth.SignUpRequest{
-		Email:    "test@example.com",
-		Password: "Password123",
-	}).Return(expected, nil).Once()
-
-	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "Password123",
-	})
-
-	req := httptest.NewRequest("POST", "/api/v1/auth/sign-up", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req, -1)
-	assert.NoError(t, err)
-	assert.Equal(t, 201, resp.StatusCode)
-
-	var got auth.Response
-	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	assert.Equal(t, expected.User.Email, got.User.Email)
-	assert.Equal(t, expected.Token, got.Token)
-
-	mockService.AssertExpectations(t)
+	return &AuthTestSetup{
+		MockService: mockService,
+		App:         app,
+		TestUser:    testUser,
+		TestToken:   "mock-jwt-token",
+	}
 }
 
-func TestJWTMiddleware_HappyPath(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestAppWithJWT(mockService)
-	now := time.Now().UTC()
-
-	jwtSecret := "test-secret-with-32-plus-characters"
-	claims := jwt.MapClaims{
-		"user_id": "60d5ecb74b24c4f9b8c2b1a1",
-		"email":   "test@example.com",
-		"exp":     now.Add(time.Hour).Unix(),
-		"iat":     now.Unix(),
+func TestAuthHandlersTableDriven(t *testing.T) {
+	testCases := []struct {
+		name           string
+		endpoint       string
+		method         string
+		body           map[string]string
+		setupMock      func(*MockAuthService, *auth.User, string)
+		expectedStatus int
+		expectedError  error
+	}{
+		{
+			name:     "SignUp_Success",
+			endpoint: signUpEndpoint,
+			method:   "POST",
+			body: map[string]string{
+				"email":    testEmail,
+				"password": testPassword,
+			},
+			setupMock: func(m *MockAuthService, user *auth.User, token string) {
+				expected := &auth.Response{User: user, Token: token}
+				m.On("SignUp", mock.Anything, auth.SignUpRequest{
+					Email:    testEmail,
+					Password: testPassword,
+				}).Return(expected, nil).Once()
+			},
+			expectedStatus: 201,
+		},
+		{
+			name:     "SignUp_DuplicateEmail",
+			endpoint: signUpEndpoint,
+			method:   "POST",
+			body: map[string]string{
+				"email":    testEmail,
+				"password": testPassword,
+			},
+			setupMock: func(m *MockAuthService, user *auth.User, token string) {
+				m.On("SignUp", mock.Anything, auth.SignUpRequest{
+					Email:    testEmail,
+					Password: testPassword,
+				}).Return(nil, auth.ErrRegistrationFailed).Once()
+			},
+			expectedStatus: 400,
+		},
+		{
+			name:     "SignIn_Success",
+			endpoint: signInEndpoint,
+			method:   "POST",
+			body: map[string]string{
+				"email":    testEmail,
+				"password": testPassword,
+			},
+			setupMock: func(m *MockAuthService, user *auth.User, token string) {
+				expected := &auth.Response{User: user, Token: token}
+				m.On("SignIn", mock.Anything, auth.SignInRequest{
+					Email:    testEmail,
+					Password: testPassword,
+				}).Return(expected, nil).Once()
+			},
+			expectedStatus: 200,
+		},
+		{
+			name:     "SignIn_BadCredentials",
+			endpoint: signInEndpoint,
+			method:   "POST",
+			body: map[string]string{
+				"email":    testEmail,
+				"password": testPassword,
+			},
+			setupMock: func(m *MockAuthService, user *auth.User, token string) {
+				m.On("SignIn", mock.Anything, auth.SignInRequest{
+					Email:    testEmail,
+					Password: testPassword,
+				}).Return(nil, auth.ErrInvalidCredentials).Once()
+			},
+			expectedStatus: 401,
+		},
 	}
 
-	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tknStr, err := tkn.SignedString([]byte(jwtSecret))
-	assert.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := SetupAuthTest(t)
+			tc.setupMock(setup.MockService, setup.TestUser, setup.TestToken)
 
-	req := httptest.NewRequest("GET", "/api/v1/me/", nil)
-	req.Header.Set("Authorization", "Bearer "+tknStr)
+			req := testutil.CreateJSONRequest(tc.method, tc.endpoint, tc.body)
+			resp, err := setup.App.Test(req, -1)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedStatus, resp.StatusCode)
 
-	resp, err := app.Test(req, -1)
-	assert.NoError(t, err)
+			if tc.expectedStatus < 400 {
+				var got auth.Response
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+				assert.Equal(t, setup.TestUser.Email, got.User.Email)
+				assert.Equal(t, setup.TestToken, got.Token)
+			}
+
+			setup.MockService.AssertExpectations(t)
+		})
+	}
+}
+
+func TestJWTMiddlewareHappyPath(t *testing.T) {
+	setup := SetupAuthTestWithJWT(t)
+
+	jwtSecret := "test-secret-with-32-plus-characters"
+	userID := "60d5ecb74b24c4f9b8c2b1a1"
+	email := "test@example.com"
+
+	token, err := testutil.CreateTestJWT(userID, email, []byte(jwtSecret), time.Hour)
+	require.NoError(t, err)
+
+	req := testutil.CreateAuthenticatedRequest("GET", meEndpoint, nil, token)
+	resp, err := setup.App.Test(req, -1)
+	require.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 
 	var got map[string]any
-	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	assert.Equal(t, "60d5ecb74b24c4f9b8c2b1a1", got["uid"])
-	assert.Equal(t, "test@example.com", got["email"])
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, userID, got["uid"])
+	assert.Equal(t, email, got["email"])
 
-	mockService.AssertExpectations(t)
+	setup.MockService.AssertExpectations(t)
 }
 
-func TestSignUp_DuplicateEmail(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestApp(mockService)
-
-	mockService.On("SignUp", mock.Anything, auth.SignUpRequest{
-		Email:    "existing@example.com",
-		Password: "Password123",
-	}).Return(nil, auth.ErrRegistrationFailed).Once()
-
-	body, _ := json.Marshal(map[string]string{
-		"email":    "existing@example.com",
-		"password": "Password123",
-	})
-
-	req := httptest.NewRequest("POST", "/api/v1/auth/sign-up", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req, -1)
-	assert.NoError(t, err)
-	assert.Equal(t, 400, resp.StatusCode)
-
-	mockService.AssertExpectations(t)
-}
-
-func TestSignIn_Success(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestApp(mockService)
-	now := time.Now().UTC()
-
-	user := &auth.User{
-		ID:        bson.NewObjectID(),
-		Email:     "test@example.com",
-		CreatedAt: now,
-		UpdatedAt: now,
+func makeTestRequestForRateLimit(setup *AuthTestSetup, body map[string]string) (resp *http.Response, err error) {
+	req := testutil.CreateJSONRequest("POST", signInEndpoint, body)
+	req.Header.Set("X-Forwarded-For", rateLimitIP) // fixed IP for rate limiter
+	resp, err = setup.App.Test(req, -1)
+	if err != nil {
+		return nil, err
 	}
-	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
-
-	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
-		Email:    "test@example.com",
-		Password: "Password123",
-	}).Return(expected, nil).Once()
-
-	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "Password123",
-	})
-
-	req := httptest.NewRequest("POST", "/api/v1/auth/sign-in", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req, -1)
-	assert.NoError(t, err)
-	assert.Equal(t, 200, resp.StatusCode)
-
-	var got auth.Response
-	assert.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	assert.Equal(t, expected.User.Email, got.User.Email)
-	assert.Equal(t, expected.Token, got.Token)
-
-	mockService.AssertExpectations(t)
+	return resp, nil
 }
 
-func TestSignIn_BadCredentials(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestApp(mockService)
+func TestSignInRateLimit(t *testing.T) {
+	setup := SetupAuthTest(t)
 
-	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
-		Email:    "test@example.com",
-		Password: "wrongpassword",
-	}).Return(nil, auth.ErrInvalidCredentials).Once()
-
-	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "wrongpassword",
-	})
-
-	req := httptest.NewRequest("POST", "/api/v1/auth/sign-in", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req, -1)
-	assert.NoError(t, err)
-	assert.Equal(t, 401, resp.StatusCode)
-
-	mockService.AssertExpectations(t)
-}
-
-func TestSignIn_RateLimit(t *testing.T) {
-	mockService := &MockAuthService{}
-	app := setupTestApp(mockService)
-	now := time.Now().UTC()
-
-	user := &auth.User{
-		ID:        bson.NewObjectID(),
-		Email:     "test@example.com",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	expected := &auth.Response{User: user, Token: "mock-jwt-token"}
-
-	mockService.On("SignIn", mock.Anything, auth.SignInRequest{
-		Email:    "test@example.com",
-		Password: "Password123",
+	expected := &auth.Response{User: setup.TestUser, Token: setup.TestToken}
+	setup.MockService.On("SignIn", mock.Anything, auth.SignInRequest{
+		Email:    testEmail,
+		Password: testPassword,
 	}).Return(expected, nil).Times(2)
 
-	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "Password123",
-	})
+	body := map[string]string{
+		"email":    testEmail,
+		"password": testPassword,
+	}
 
-	req1 := httptest.NewRequest("POST", "/api/v1/auth/sign-in", bytes.NewReader(body))
-	req1.Header.Set("Content-Type", "application/json")
-	req1.Header.Set("X-Forwarded-For", "192.168.1.1") // fixed IP for rate limiter
-
-	resp1, err := app.Test(req1, -1)
-	assert.NoError(t, err)
+	// First request should succeed
+	resp1, err := makeTestRequestForRateLimit(setup, body)
+	require.NoError(t, err)
 	assert.Equal(t, 200, resp1.StatusCode)
 
-	req2 := httptest.NewRequest("POST", "/api/v1/auth/sign-in", bytes.NewReader(body))
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("X-Forwarded-For", "192.168.1.1")
-
-	resp2, err := app.Test(req2, -1)
-	assert.NoError(t, err)
+	// Second request should succeed
+	resp2, err := makeTestRequestForRateLimit(setup, body)
+	require.NoError(t, err)
 	assert.Equal(t, 200, resp2.StatusCode)
 
-	req3 := httptest.NewRequest("POST", "/api/v1/auth/sign-in", bytes.NewReader(body))
-	req3.Header.Set("Content-Type", "application/json")
-	req3.Header.Set("X-Forwarded-For", "192.168.1.1")
-
-	resp3, err := app.Test(req3, -1)
-	assert.NoError(t, err)
+	// Third request should be rate limited
+	resp3, err := makeTestRequestForRateLimit(setup, body)
+	require.NoError(t, err)
 	assert.Equal(t, 429, resp3.StatusCode)
 
-	mockService.AssertExpectations(t)
+	setup.MockService.AssertExpectations(t)
 }

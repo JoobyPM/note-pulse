@@ -1,16 +1,13 @@
 package notes
 
 import (
-	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"testing"
 	"time"
 
-	"note-pulse/cmd/server/handlers/httperr"
+	"note-pulse/cmd/server/testutil"
 	"note-pulse/internal/config"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/notes"
@@ -19,7 +16,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	gorillaws "github.com/gorilla/websocket"
-	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -29,58 +25,7 @@ const (
 	wsMaxIncomingBytes = 1 << 20 // 1 MiB
 )
 
-// MockHub implements the Hub interface for testing
-type MockHub struct {
-	subscribers    map[ulid.ULID]*notes.Subscriber
-	subscribeCount int
-}
-
-func NewMockHub() *MockHub {
-	return &MockHub{
-		subscribers: make(map[ulid.ULID]*notes.Subscriber),
-	}
-}
-
-func (m *MockHub) Subscribe(ctx context.Context, connULID ulid.ULID, userID bson.ObjectID) (*notes.Subscriber, func()) {
-	sub := &notes.Subscriber{
-		UserID: userID,
-		Ch:     make(chan notes.NoteEvent, 10),
-		Done:   make(chan struct{}),
-	}
-	m.subscribers[connULID] = sub
-	m.subscribeCount++
-
-	cancel := func() {
-		m.Unsubscribe(ctx, connULID)
-	}
-	return sub, cancel
-}
-
-func (m *MockHub) Unsubscribe(_ context.Context, connULID ulid.ULID) {
-	if sub, exists := m.subscribers[connULID]; exists {
-		close(sub.Ch)
-		close(sub.Done)
-		delete(m.subscribers, connULID)
-	}
-}
-
-func (m *MockHub) GetSubscriberCount() int {
-	return len(m.subscribers)
-}
-
-func createTestJWT(userID string, email string, secret []byte, expiry time.Duration) (string, error) {
-	now := time.Now().UTC()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": userID,
-		"email":   email,
-		"exp":     now.Add(expiry).Unix(),
-		"iat":     now.Unix(),
-	})
-
-	return token.SignedString(secret)
-}
-
-func TestWSUpgrade_ValidToken(t *testing.T) {
+func TestWSUpgradeTableDriven(t *testing.T) {
 	cfg := config.Config{
 		LogLevel:  "info",
 		LogFormat: "text",
@@ -88,45 +33,22 @@ func TestWSUpgrade_ValidToken(t *testing.T) {
 	_, err := logger.Init(cfg)
 	require.NoError(t, err)
 
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
+	config := DefaultWebSocketTestConfig()
+	testCases := GetStandardWSUpgradeTestCases(t, config.Secret)
 
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			app, _, _ := SetupWebSocketHandlersApp(t, config)
 
-	// Create test app
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		userID := c.Locals("userID").(string)
-		userEmail := c.Locals("userEmail").(string)
-		return c.JSON(fiber.Map{
-			"user_id": userID,
-			"email":   userEmail,
+			req := testutil.CreateWebSocketRequest("/ws", tc.Token)
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.ExpectedStatus, resp.StatusCode)
 		})
-	})
-
-	// Create valid JWT
-	userID := bson.NewObjectID().Hex()
-	email := "test@example.com"
-	token, err := createTestJWT(userID, email, []byte(secret), time.Hour)
-	require.NoError(t, err)
-
-	// Test with valid token
-	req, err := http.NewRequest("GET", "/ws?token="+token, nil)
-	require.NoError(t, err)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "test-key")
-
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 200, resp.StatusCode)
+	}
 }
 
-func TestWSUpgrade_MissingToken(t *testing.T) {
+func TestWSUpgradeNonWebSocketRequest(t *testing.T) {
 	cfg := config.Config{
 		LogLevel:  "info",
 		LogFormat: "text",
@@ -134,128 +56,10 @@ func TestWSUpgrade_MissingToken(t *testing.T) {
 	_, err := logger.Init(cfg)
 	require.NoError(t, err)
 
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
+	config := DefaultWebSocketTestConfig()
+	app, _, _ := SetupWebSocketHandlersApp(t, config)
 
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
-	})
-
-	req, err := http.NewRequest("GET", "/ws", nil)
-	require.NoError(t, err)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "test-key")
-
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 401, resp.StatusCode)
-}
-
-func TestWSUpgrade_InvalidToken(t *testing.T) {
-	cfg := config.Config{
-		LogLevel:  "info",
-		LogFormat: "text",
-	}
-	_, err := logger.Init(cfg)
-	require.NoError(t, err)
-
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
-	})
-
-	req, err := http.NewRequest("GET", "/ws?token=invalid-token", nil)
-	require.NoError(t, err)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "test-key")
-
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 401, resp.StatusCode)
-}
-
-func TestWSUpgrade_ExpiredToken(t *testing.T) {
-	cfg := config.Config{
-		LogLevel:  "info",
-		LogFormat: "text",
-	}
-	_, err := logger.Init(cfg)
-	require.NoError(t, err)
-
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
-	})
-
-	// Create expired JWT
-	userID := bson.NewObjectID().Hex()
-	email := "test@example.com"
-	token, err := createTestJWT(userID, email, []byte(secret), -time.Hour) // Expired 1 hour ago
-	require.NoError(t, err)
-
-	req, err := http.NewRequest("GET", "/ws?token="+token, nil)
-	require.NoError(t, err)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "test-key")
-
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	assert.Equal(t, 401, resp.StatusCode)
-}
-
-func TestWSUpgrade_NonWebSocketRequest(t *testing.T) {
-	cfg := config.Config{
-		LogLevel:  "info",
-		LogFormat: "text",
-	}
-	_, err := logger.Init(cfg)
-	require.NoError(t, err)
-
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	app := fiber.New(fiber.Config{
-		ErrorHandler: httperr.Handler,
-	})
-	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
-	})
-
-	// Regular HTTP request without WebSocket headers
-	req, err := http.NewRequest("GET", "/ws", nil)
-	require.NoError(t, err)
-
+	req := testutil.CreateJSONRequest("GET", "/ws", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, 400, resp.StatusCode)
@@ -271,7 +75,7 @@ func TestWSSessionTimeout(t *testing.T) {
 
 	hub := NewMockHub()
 	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 2 // 2 seconds for testing
+	maxSessionSec := 2
 
 	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
 
@@ -347,107 +151,104 @@ func TestWSSessionTimeout(t *testing.T) {
 // Integration test that verifies proper cleanup when WebSocket closes
 func TestWSConnectionCleanup(t *testing.T) {
 	hub := NewMockHub()
-	now := time.Now().UTC()
-
-	// Initial state
-	require.Equal(t, 0, hub.GetSubscriberCount())
-
-	// Simulate WebSocket connection establishment and closure
-	// This is a simplified test since we can't easily mock the full WebSocket lifecycle
 	userID := bson.NewObjectID()
-	connULID := ulid.MustNew(ulid.Timestamp(now), rand.Reader)
 
-	// Subscribe (simulating what happens in WSNotesStream)
-	sub, cancel := hub.Subscribe(context.Background(), connULID, userID)
-	require.Equal(t, 1, hub.GetSubscriberCount())
+	var sub *notes.Subscriber // will be set later
 
-	// Simulate connection closure (cancel is called in defer)
-	cancel()
+	// -- FIRST cleanup: runs **after** the cancel registered below
+	t.Cleanup(func() {
+		require.Eventually(t, func() bool {
+			return hub.GetSubscriberCount() == 0 // should now be 0
+		}, 100*time.Millisecond, 10*time.Millisecond,
+			"Hub should have no subscribers after cleanup")
 
-	// Verify cleanup
-	require.Eventually(t, func() bool {
-		return hub.GetSubscriberCount() == 0
-	}, 100*time.Millisecond, 10*time.Millisecond, "Hub should have no subscribers after cleanup")
+		select {
+		case <-sub.Done:
+		case <-time.After(50 * time.Millisecond):
+			t.Fatal("Done channel should be closed after cleanup")
+		}
 
-	// Verify channels are closed
-	select {
-	case <-sub.Done:
-		// Expected
-	case <-time.After(50 * time.Millisecond):
-		t.Fatal("Done channel should be closed after cleanup")
-	}
-
-	// Verify we can't send on the channel
-	assert.Panics(t, func() {
-		sub.Ch <- notes.NoteEvent{Type: "test"}
-	}, "Should panic when sending to closed channel")
-}
-
-func TestValidateJWT_Success(t *testing.T) {
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	userID := bson.NewObjectID().Hex()
-	email := "test@example.com"
-	token, err := createTestJWT(userID, email, []byte(secret), time.Hour)
-	require.NoError(t, err)
-
-	parsedUserID, parsedEmail, err := wsHandlers.validateJWT(token)
-	require.NoError(t, err)
-	assert.Equal(t, userID, parsedUserID.Hex())
-	assert.Equal(t, email, parsedEmail)
-}
-
-func TestValidateJWT_InvalidFormat(t *testing.T) {
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	_, _, err := wsHandlers.validateJWT("invalid.token.format")
-	assert.Error(t, err)
-}
-
-func TestValidateJWT_WrongSecret(t *testing.T) {
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	wrongSecret := "wrong-secret-key-with-32-characters"
-	maxSessionSec := 900
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	userID := bson.NewObjectID().Hex()
-	email := "test@example.com"
-	token, err := createTestJWT(userID, email, []byte(wrongSecret), time.Hour)
-	require.NoError(t, err)
-
-	_, _, err = wsHandlers.validateJWT(token)
-	assert.Error(t, err)
-}
-
-func TestValidateJWT_MissingClaims(t *testing.T) {
-	hub := NewMockHub()
-	secret := "test-secret-key-with-32-characters"
-	maxSessionSec := 900
-	now := time.Now().UTC()
-
-	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
-
-	// Create token without required claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp": now.Add(time.Hour).Unix(),
-		"iat": now.Unix(),
-		// Missing user_id and email
+		assert.Panics(t, func() {
+			sub.Ch <- notes.NoteEvent{Type: "test"} // channel is closed
+		}, "should panic when sending to closed channel")
 	})
 
-	tokenString, err := token.SignedString([]byte(secret))
-	require.NoError(t, err)
+	// subscribe **after** the assertion cleanup is registered
+	sub = WebSocketConnectionTest(t, hub, userID)
+	require.Equal(t, 1, hub.GetSubscriberCount())
+}
 
-	_, _, err = wsHandlers.validateJWT(tokenString)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing user_id")
+func TestValidateJWTTabledriven(t *testing.T) {
+	hub := NewMockHub()
+	secret := "test-secret-key-with-32-characters"
+	maxSessionSec := 900
+	wsHandlers := NewWebSocketHandlers(hub, secret, maxSessionSec)
+
+	userID := bson.NewObjectID().Hex()
+	email := "test@example.com"
+
+	testCases := []struct {
+		name        string
+		setupToken  func() string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Success",
+			setupToken: func() string {
+				token, _ := CreateTestJWTForWebSocket(userID, email, secret, time.Hour)
+				return token
+			},
+			expectError: false,
+		},
+		{
+			name: "InvalidFormat",
+			setupToken: func() string {
+				return "invalid.token.format"
+			},
+			expectError: true,
+		},
+		{
+			name: "WrongSecret",
+			setupToken: func() string {
+				wrongSecret := "wrong-secret-key-with-32-characters"
+				token, _ := CreateTestJWTForWebSocket(userID, email, wrongSecret, time.Hour)
+				return token
+			},
+			expectError: true,
+		},
+		{
+			name: "MissingClaims",
+			setupToken: func() string {
+				now := time.Now().UTC()
+				token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+					"exp": now.Add(time.Hour).Unix(),
+					"iat": now.Unix(),
+					// Missing user_id and email
+				})
+				tokenString, _ := token.SignedString([]byte(secret))
+				return tokenString
+			},
+			expectError: true,
+			errorMsg:    "missing user_id",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			token := tc.setupToken()
+			parsedUserID, parsedEmail, err := wsHandlers.validateJWT(token)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, userID, parsedUserID.Hex())
+				assert.Equal(t, email, parsedEmail)
+			}
+		})
+	}
 }

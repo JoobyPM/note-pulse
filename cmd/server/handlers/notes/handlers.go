@@ -2,10 +2,9 @@ package notes
 
 import (
 	"context"
-	"errors"
 
-	"note-pulse/cmd/server/handlers/httperr"
-	"note-pulse/internal/logger"
+	"note-pulse/cmd/server/handlers/handlerutil"
+	_ "note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/services/notes"
 
 	"github.com/go-playground/validator/v10"
@@ -35,23 +34,6 @@ func NewHandlers(service Service, validator *validator.Validate) *Handlers {
 	}
 }
 
-// getUserID extracts user ID from fiber context
-func (h *Handlers) getUserID(c *fiber.Ctx) (bson.ObjectID, error) {
-	userIDStr, ok := c.Locals("userID").(string)
-	if !ok {
-		logger.L().Error("user ID not found in context", "handler", "getUserID", "path", c.Path())
-		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
-	}
-
-	userID, err := bson.ObjectIDFromHex(userIDStr)
-	if err != nil {
-		logger.L().Error("invalid user ID", "handler", "getUserID", "userIDStr", userIDStr, "path", c.Path(), "error", err)
-		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
-	}
-
-	return userID, nil
-}
-
 // Create handles note creation
 // @Summary Create a new note
 // @Tags notes
@@ -64,29 +46,19 @@ func (h *Handlers) getUserID(c *fiber.Ctx) (bson.ObjectID, error) {
 // @Failure 401 {object} httperr.E
 // @Router /notes [post]
 func (h *Handlers) Create(c *fiber.Ctx) error {
-	userID, err := h.getUserID(c)
+	userID, err := handlerutil.GetUserID(c)
 	if err != nil {
 		return err
 	}
 
 	var req notes.CreateNoteRequest
-	if err := c.BodyParser(&req); err != nil {
-		logger.L().Warn("failed to parse create note request body", "handler", "Create", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.ErrBadRequest)
-	}
-
-	if err := h.validator.Struct(req); err != nil {
-		logger.L().Warn("create note request validation failed", "handler", "Create", "userID", userID.Hex(), "error", err)
-		return httperr.InvalidInput(err)
+	if err := handlerutil.ParseAndValidateBody(c, &req, h.validator, "Create"); err != nil {
+		return err
 	}
 
 	resp, err := h.service.Create(c.Context(), userID, req)
 	if err != nil {
-		logger.L().Error("create note service failed", "handler", "Create", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  500,
-			Message: err.Error(),
-		})
+		return handlerutil.HandleServiceError(err, "Create", userID, nil, notes.ErrNoteNotFound)
 	}
 
 	return c.Status(201).JSON(resp)
@@ -105,29 +77,19 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 // @Failure 401 {object} httperr.E
 // @Router /notes [get]
 func (h *Handlers) List(c *fiber.Ctx) error {
-	userID, err := h.getUserID(c)
+	userID, err := handlerutil.GetUserID(c)
 	if err != nil {
 		return err
 	}
 
 	var req notes.ListNotesRequest
-	if err := c.QueryParser(&req); err != nil {
-		logger.L().Warn("failed to parse list notes query params", "handler", "List", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.ErrBadRequest)
-	}
-
-	if err := h.validator.Struct(req); err != nil {
-		logger.L().Warn("list notes request validation failed", "handler", "List", "userID", userID.Hex(), "error", err)
-		return httperr.InvalidInput(err)
+	if err := handlerutil.ParseAndValidateQuery(c, &req, h.validator, "List"); err != nil {
+		return err
 	}
 
 	resp, err := h.service.List(c.Context(), userID, req)
 	if err != nil {
-		logger.L().Error("list notes service failed", "handler", "List", "userID", userID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  500,
-			Message: err.Error(),
-		})
+		return handlerutil.HandleServiceError(err, "List", userID, nil, notes.ErrNoteNotFound)
 	}
 
 	return c.JSON(resp)
@@ -146,54 +108,24 @@ func (h *Handlers) List(c *fiber.Ctx) error {
 // @Failure 401 {object} httperr.E
 // @Router /notes/{id} [patch]
 func (h *Handlers) Update(c *fiber.Ctx) error {
-	userID, err := h.getUserID(c)
+	userID, err := handlerutil.GetUserID(c)
 	if err != nil {
 		return err
 	}
 
-	noteIDStr := c.Params("id")
-	if noteIDStr == "" {
-		logger.L().Warn("missing note ID parameter", "handler", "Update", "userID", userID.Hex(), "path", c.Path())
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: notes.ErrNoteNotFound.Error(),
-		})
-	}
-
-	noteID, err := bson.ObjectIDFromHex(noteIDStr)
+	noteID, err := handlerutil.ExtractNoteID(c, userID, "Update", notes.ErrNoteNotFound)
 	if err != nil {
-		logger.L().Warn("invalid note ID parameter", "handler", "Update", "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: notes.ErrNoteNotFound.Error(),
-		})
+		return err
 	}
 
 	var req notes.UpdateNoteRequest
-	if err := c.BodyParser(&req); err != nil {
-		logger.L().Warn("failed to parse update note request body", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
-		return httperr.Fail(httperr.ErrBadRequest)
-	}
-
-	if err := h.validator.Struct(req); err != nil {
-		logger.L().Warn("update note request validation failed", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
-		return httperr.InvalidInput(err)
+	if err := handlerutil.ParseAndValidateBody(c, &req, h.validator, "Update"); err != nil {
+		return err
 	}
 
 	resp, err := h.service.Update(c.Context(), userID, noteID, req)
 	if err != nil {
-		if errors.Is(err, notes.ErrNoteNotFound) {
-			logger.L().Info("note not found for update", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex())
-			return httperr.Fail(httperr.E{
-				Status:  400,
-				Message: notes.ErrNoteNotFound.Error(),
-			})
-		}
-		logger.L().Error("update note service failed", "handler", "Update", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  500,
-			Message: err.Error(),
-		})
+		return handlerutil.HandleServiceError(err, "Update", userID, &noteID, notes.ErrNoteNotFound)
 	}
 
 	return c.JSON(resp)
@@ -211,43 +143,19 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 // @Failure 401 {object} httperr.E
 // @Router /notes/{id} [delete]
 func (h *Handlers) Delete(c *fiber.Ctx) error {
-	userID, err := h.getUserID(c)
+	userID, err := handlerutil.GetUserID(c)
 	if err != nil {
 		return err
 	}
 
-	noteIDStr := c.Params("id")
-	if noteIDStr == "" {
-		logger.L().Warn("missing note ID parameter", "handler", "Delete", "userID", userID.Hex(), "path", c.Path())
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: notes.ErrNoteNotFound.Error(),
-		})
-	}
-
-	noteID, err := bson.ObjectIDFromHex(noteIDStr)
+	noteID, err := handlerutil.ExtractNoteID(c, userID, "Delete", notes.ErrNoteNotFound)
 	if err != nil {
-		logger.L().Warn("invalid note ID parameter", "handler", "Delete", "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  400,
-			Message: notes.ErrNoteNotFound.Error(),
-		})
+		return err
 	}
 
 	err = h.service.Delete(c.Context(), userID, noteID)
 	if err != nil {
-		if errors.Is(err, notes.ErrNoteNotFound) {
-			logger.L().Info("note not found for delete", "handler", "Delete", "userID", userID.Hex(), "noteID", noteID.Hex())
-			return httperr.Fail(httperr.E{
-				Status:  400,
-				Message: notes.ErrNoteNotFound.Error(),
-			})
-		}
-		logger.L().Error("delete note service failed", "handler", "Delete", "userID", userID.Hex(), "noteID", noteID.Hex(), "error", err)
-		return httperr.Fail(httperr.E{
-			Status:  500,
-			Message: err.Error(),
-		})
+		return handlerutil.HandleServiceError(err, "Delete", userID, &noteID, notes.ErrNoteNotFound)
 	}
 
 	return c.SendStatus(204)
