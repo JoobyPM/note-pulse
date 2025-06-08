@@ -19,16 +19,19 @@ const OpTimeout = 5 * time.Second
 // without needing extra branching or nil checks.
 func WithRepoTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	if err := ctx.Err(); err != nil {
-		return ctx, func() {}
-		// Parent context is already canceled or deadline exceeded.
-		// Return the original context plus a dummy cancel so the
-		// caller can still defer cancel() unconditionally.
+		return ctx, func() {
+			// Parent context is already canceled or deadline exceeded.
+			// Return the original context plus a dummy cancel so the
+			// caller can still defer cancel() unconditionally.
+		}
 	}
 	if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= d {
-		return ctx, func() {}
-		// The existing deadline is sooner than (or equal to) the
-		// requested timeout, so keep the stricter deadline. Again,
-		// provide a no-op cancel for ease of use.
+		return ctx, func() {
+			// The existing deadline is sooner than (or equal to) the
+			// requested timeout, so keep the stricter deadline. Again,
+			// provide a no-op cancel for ease of use.
+		}
 	}
+
 	return context.WithTimeout(ctx, d)
 }

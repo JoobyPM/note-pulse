@@ -16,7 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-func TestHub_ChannelClosedAfterUnsubscribe(t *testing.T) {
+func TestHubChannelClosedAfterUnsubscribe(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
@@ -43,7 +43,7 @@ func TestHub_ChannelClosedAfterUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestHub_CancelFunctionWorks(t *testing.T) {
+func TestHubCancelFunctionWorks(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
@@ -70,7 +70,7 @@ func TestHub_CancelFunctionWorks(t *testing.T) {
 	}
 }
 
-func TestHub_ConcurrentBroadcastsForDifferentUsers(t *testing.T) {
+func TestHubConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 	// Skip this test in short mode as it's resource-intensive
 	if testing.Short() {
 		t.Skip("skipping resource-intensive test in short mode")
@@ -121,7 +121,7 @@ func TestHub_ConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 		received = make([]int, numUsers)
 		wgRecv   sync.WaitGroup
 	)
-	for i := 0; i < numUsers; i++ {
+	for i := range numUsers {
 		wgRecv.Add(1)
 
 		go func(idx int) {
@@ -175,7 +175,7 @@ func TestHub_ConcurrentBroadcastsForDifferentUsers(t *testing.T) {
 	}
 }
 
-func TestHub_RaceConditionDetection(t *testing.T) {
+func TestHubRaceConditionDetection(t *testing.T) {
 	// This test is designed to be run with -race flag
 	// Skip this test in short mode as it's resource intensive
 	if testing.Short() {
@@ -258,7 +258,7 @@ func TestHub_RaceConditionDetection(t *testing.T) {
 	wg.Wait()
 }
 
-func TestHub_UserBucketCleanup(t *testing.T) {
+func TestHubUserBucketCleanup(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 
@@ -282,7 +282,7 @@ func TestHub_UserBucketCleanup(t *testing.T) {
 	assert.False(t, exists, "User bucket should be cleaned up after last unsubscribe")
 }
 
-func TestHub_MultipleConnectionsPerUser(t *testing.T) {
+func TestHubMultipleConnectionsPerUser(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 
@@ -335,7 +335,7 @@ func TestHub_MultipleConnectionsPerUser(t *testing.T) {
 	assert.Equal(t, 0, hub.GetSubscriberCount())
 }
 
-func TestHub_BroadcastToNonexistentUser(t *testing.T) {
+func TestHubBroadcastToNonexistentUser(t *testing.T) {
 	hub := NewHub(256)
 
 	// Broadcast to a user with no subscribers
@@ -357,7 +357,7 @@ func TestHub_BroadcastToNonexistentUser(t *testing.T) {
 }
 
 // TestHub_NoLeakAfterWSDisconnect tests that all subscribers are cleaned up after disconnect
-func TestHub_NoLeakAfterWSDisconnect(t *testing.T) {
+func TestHubNoLeakAfterWSDisconnect(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
@@ -387,7 +387,7 @@ func TestHub_NoLeakAfterWSDisconnect(t *testing.T) {
 }
 
 // TestHub_BroadcastAfterUnsubscribe_NoPanic tests that broadcasting after unsubscribe doesn't panic
-func TestHub_BroadcastAfterUnsubscribe_NoPanic(t *testing.T) {
+func TestHubBroadcastAfterUnsubscribeNoPanic(t *testing.T) {
 	hub := NewHub(256)
 	userID := bson.NewObjectID()
 

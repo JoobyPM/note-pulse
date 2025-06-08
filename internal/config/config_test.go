@@ -59,7 +59,7 @@ func clearConfigEnvVars(t *testing.T) {
 	}
 }
 
-func TestConfig_LoadDefaults(t *testing.T) {
+func TestConfigLoadDefaults(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -83,7 +83,7 @@ func TestConfig_LoadDefaults(t *testing.T) {
 	assert.True(t, cfg.RequestLoggingEnabled)
 }
 
-func TestConfig_LoadWithOverride(t *testing.T) {
+func TestConfigLoadWithOverride(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -102,7 +102,7 @@ func TestConfig_LoadWithOverride(t *testing.T) {
 	assert.True(t, cfg.DevMode)
 }
 
-func TestConfig_Caching(t *testing.T) {
+func TestConfigCaching(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -118,7 +118,7 @@ func TestConfig_Caching(t *testing.T) {
 	assert.Equal(t, cfg1, cfg2)
 }
 
-func TestConfig_RequestLoggingDisabled(t *testing.T) {
+func TestConfigRequestLoggingDisabled(t *testing.T) {
 	clearConfigEnvVars(t)
 	ResetCache()
 
@@ -135,7 +135,7 @@ func TestConfig_RequestLoggingDisabled(t *testing.T) {
 // Validate() unit tests (table-driven)
 // -----------------------------------------------------------------------------
 
-func TestConfig_Validate(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		modify  func(*Config) // mutates the baseValidConfig
@@ -143,11 +143,12 @@ func TestConfig_Validate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name:   "valid config",
-			modify: func(*Config) {},
-			// No-op: baseValidConfig already returns a valid configuration.
-			// Leaving this empty makes the test exercise the happy-path
-			// scenario where Validate should succeed without any mutations.
+			name: "valid config",
+			modify: func(*Config) {
+				// No-op: baseValidConfig already returns a valid configuration.
+				// Leaving this empty makes the test exercise the happy-path
+				// scenario where Validate should succeed without any mutations.
+			},
 		},
 		{
 			name: "invalid port - zero",

@@ -18,6 +18,12 @@ import (
 // stubDriver implements the driver interface for testing
 type stubDriver struct{}
 
+const (
+	msgClientShouldBeNil = "client should be nil on connection failure"
+	msgDBShouldBeNil     = "db should be nil on connection failure"
+	MongoTestURI         = "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1"
+)
+
 func (stubDriver) Connect(_ context.Context, _ *options.ClientOptions) (*mongo.Client, error) {
 	return nil, context.DeadlineExceeded // fail immediately to avoid retry delays
 }
@@ -36,13 +42,13 @@ func withStubDriver(t *testing.T) func() {
 	return func() { drv = old }
 }
 
-func TestMongoClient_Idempotency(t *testing.T) {
+func TestMongoClientIdempotency(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -58,20 +64,20 @@ func TestMongoClient_Idempotency(t *testing.T) {
 
 	// With new behavior, failed connections return nil
 	assert.Nil(t, client1, "client should be nil on connection failure")
-	assert.Nil(t, db1, "db should be nil on connection failure")
-	assert.Nil(t, client2, "client should be nil on connection failure")
-	assert.Nil(t, db2, "db should be nil on connection failure")
+	assert.Nil(t, db1, msgDBShouldBeNil)
+	assert.Nil(t, client2, msgClientShouldBeNil)
+	assert.Nil(t, db2, msgDBShouldBeNil)
 	assert.Error(t, err1)
 	assert.Error(t, err2)
 }
 
-func TestMongoClient_ShutdownResets(t *testing.T) {
+func TestMongoClientShutdownResets(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -84,29 +90,29 @@ func TestMongoClient_ShutdownResets(t *testing.T) {
 
 	client1, db1, initErr := Init(ctx, cfg, log)
 	require.Error(t, initErr)
-	assert.Nil(t, client1, "client should be nil on connection failure")
-	assert.Nil(t, db1, "db should be nil on connection failure")
+	assert.Nil(t, client1, msgClientShouldBeNil)
+	assert.Nil(t, db1, msgDBShouldBeNil)
 
 	err = Shutdown(ctx)
 	assert.NoError(t, err)
 
 	client2, db2, initErr := Init(ctx, cfg, log)
 	require.Error(t, initErr)
-	assert.Nil(t, client2, "client should be nil on connection failure")
-	assert.Nil(t, db2, "db should be nil on connection failure")
+	assert.Nil(t, client2, msgClientShouldBeNil)
+	assert.Nil(t, db2, msgDBShouldBeNil)
 
 	// Both should be nil, so they're "equal" in that sense
 	assert.Equal(t, client1, client2, "both clients should be nil")
 	assert.Equal(t, db1, db2, "both databases should be nil")
 }
 
-func TestMongoClient_Concurrency(t *testing.T) {
+func TestMongoClientConcurrency(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -148,13 +154,13 @@ func TestMongoClient_Concurrency(t *testing.T) {
 	}
 }
 
-func TestMongoClient_AccessorsAfterInit(t *testing.T) {
+func TestMongoClientAccessorsAfterInit(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -175,13 +181,13 @@ func TestMongoClient_AccessorsAfterInit(t *testing.T) {
 	assert.Equal(t, initDB, accessorDB, "DB() should return the same instance as Init")
 }
 
-func TestMongoClient_ShutdownIdempotency(t *testing.T) {
+func TestMongoClientShutdownIdempotency(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -207,13 +213,13 @@ func TestMongoClient_ShutdownIdempotency(t *testing.T) {
 	assert.Nil(t, DB())
 }
 
-func TestMongoClient_RetryAfterFailure(t *testing.T) {
+func TestMongoClientRetryAfterFailure(t *testing.T) {
 	defer withStubDriver(t)()
 	reset()
 	defer reset()
 
 	cfg := config.Config{
-		MongoURI:    "mongodb://invalid/?connectTimeoutMS=1&serverSelectionTimeoutMS=1",
+		MongoURI:    MongoTestURI,
 		MongoDBName: "test",
 		LogLevel:    "error",
 		LogFormat:   "json",
@@ -227,8 +233,8 @@ func TestMongoClient_RetryAfterFailure(t *testing.T) {
 
 	client1, db1, err1 := Init(ctx, cfg, log)
 	assert.Error(t, err1, "first Init should fail with invalid URI")
-	assert.Nil(t, client1, "client should be nil on connection failure")
-	assert.Nil(t, db1, "db should be nil on connection failure")
+	assert.Nil(t, client1, msgClientShouldBeNil)
+	assert.Nil(t, db1, msgDBShouldBeNil)
 
 	client2, db2, err2 := Init(ctx, cfg, log)
 	assert.Equal(t, client1, client2, "both clients should be nil")

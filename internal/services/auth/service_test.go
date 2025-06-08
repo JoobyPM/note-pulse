@@ -21,6 +21,20 @@ import (
 
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+var (
+	testJWTSecret = "super-secret-jwt-key-at-least-32-chars"
+	testUserEmail = "test@example.com"
+	testPassword  = "Password123"
+)
+
+func getTestConfig() config.Config {
+	return config.Config{
+		BcryptCost:   12,
+		JWTSecret:    testJWTSecret,
+		JWTAlgorithm: "HS256",
+	}
+}
+
 // MockUsersRepo is a mock implementation of UsersRepo
 type MockUsersRepo struct {
 	mock.Mock
@@ -88,12 +102,8 @@ func (m *MockRefreshTokensRepo) SupportsTransactions() bool {
 	return args.Bool(0)
 }
 
-func TestService_SignUp(t *testing.T) {
-	cfg := config.Config{
-		BcryptCost:   12,
-		JWTSecret:    "super-secret-jwt-key-at-least-32-chars",
-		JWTAlgorithm: "HS256",
-	}
+func TestServiceSignUp(t *testing.T) {
+	cfg := getTestConfig()
 
 	tests := []struct {
 		name    string
@@ -105,8 +115,8 @@ func TestService_SignUp(t *testing.T) {
 		{
 			name: "successful signup",
 			req: SignUpRequest{
-				Email:    "test@example.com",
-				Password: "Password123",
+				Email:    testUserEmail,
+				Password: testPassword,
 			},
 			setup: func(repo *MockUsersRepo) {
 				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(nil, errors.New("not found"))
@@ -118,15 +128,15 @@ func TestService_SignUp(t *testing.T) {
 		{
 			name: "duplicate email",
 			req: SignUpRequest{
-				Email:    "test@example.com",
-				Password: "Password123",
+				Email:    testUserEmail,
+				Password: testPassword,
 			},
 			setup: func(repo *MockUsersRepo) {
 				existingUser := &User{
 					ID:    bson.NewObjectID(),
-					Email: "test@example.com",
+					Email: testUserEmail,
 				}
-				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(existingUser, nil)
+				repo.On("FindByEmail", mock.Anything, testUserEmail).Return(existingUser, nil)
 			},
 			wantErr: true,
 			errMsg:  ErrRegistrationFailed.Error(),
@@ -134,11 +144,11 @@ func TestService_SignUp(t *testing.T) {
 		{
 			name: "repository duplicate error",
 			req: SignUpRequest{
-				Email:    "test@example.com",
-				Password: "Password123",
+				Email:    testUserEmail,
+				Password: testPassword,
 			},
 			setup: func(repo *MockUsersRepo) {
-				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(nil, errors.New("not found"))
+				repo.On("FindByEmail", mock.Anything, testUserEmail).Return(nil, errors.New("not found"))
 				repo.On("Create", mock.Anything, mock.AnythingOfType("*auth.User")).Return(ErrDuplicate)
 			},
 			wantErr: true,
@@ -172,17 +182,13 @@ func TestService_SignUp(t *testing.T) {
 	}
 }
 
-func TestService_Refresh_TransactionRollback(t *testing.T) {
+func TestServiceRefreshTransactionRollback(t *testing.T) {
 	// This test verifies that refresh token rotation fails properly when
 	// one of the operations in the transaction fails
-	cfg := config.Config{
-		BcryptCost:         12,
-		JWTSecret:          "super-secret-jwt-key-at-least-32-chars",
-		JWTAlgorithm:       "HS256",
-		AccessTokenMinutes: 15,
-		RefreshTokenDays:   30,
-		RefreshTokenRotate: true,
-	}
+	cfg := getTestConfig()
+	cfg.AccessTokenMinutes = 15
+	cfg.RefreshTokenDays = 30
+	cfg.RefreshTokenRotate = true
 
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
@@ -199,7 +205,7 @@ func TestService_Refresh_TransactionRollback(t *testing.T) {
 
 	user := &User{
 		ID:    userID,
-		Email: "test@example.com",
+		Email: testUserEmail,
 	}
 
 	t.Run("transaction failure scenario", func(t *testing.T) {
@@ -249,7 +255,7 @@ func TestService_Refresh_TransactionRollback(t *testing.T) {
 	})
 }
 
-func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
+func TestServiceGenerateJWTDifferentAlgorithms(t *testing.T) {
 	tests := []struct {
 		name      string
 		algorithm string
@@ -271,11 +277,8 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.Config{
-				BcryptCost:   12,
-				JWTSecret:    "super-secret-jwt-key-at-least-32-chars",
-				JWTAlgorithm: tt.algorithm,
-			}
+			cfg := getTestConfig()
+			cfg.JWTAlgorithm = tt.algorithm
 
 			repo := new(MockUsersRepo)
 			refreshRepo := new(MockRefreshTokensRepo)
@@ -284,7 +287,7 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 
 			user := &User{
 				ID:    bson.NewObjectID(),
-				Email: "test@example.com",
+				Email: testUserEmail,
 			}
 
 			token, err := service.GenerateAccessToken(user)
@@ -301,12 +304,8 @@ func TestService_GenerateJWT_DifferentAlgorithms(t *testing.T) {
 	}
 }
 
-func TestService_GenerateJWT_ValidTokenStructure(t *testing.T) {
-	cfg := config.Config{
-		BcryptCost:   12,
-		JWTSecret:    "super-secret-jwt-key-at-least-32-chars",
-		JWTAlgorithm: "HS256",
-	}
+func TestServiceGenerateJWTValidTokenStructure(t *testing.T) {
+	cfg := getTestConfig()
 
 	repo := new(MockUsersRepo)
 	refreshRepo := new(MockRefreshTokensRepo)
@@ -314,7 +313,7 @@ func TestService_GenerateJWT_ValidTokenStructure(t *testing.T) {
 
 	user := &User{
 		ID:    bson.NewObjectID(),
-		Email: "test@example.com",
+		Email: testUserEmail,
 	}
 
 	token, err := service.GenerateAccessToken(user)
@@ -331,16 +330,12 @@ func TestService_GenerateJWT_ValidTokenStructure(t *testing.T) {
 	}
 }
 
-func TestService_Refresh_StandaloneMongo(t *testing.T) {
+func TestServiceRefreshStandaloneMongo(t *testing.T) {
 	// Test graceful degradation when MongoDB doesn't support transactions
-	cfg := config.Config{
-		BcryptCost:         12,
-		JWTSecret:          "super-secret-jwt-key-at-least-32-chars",
-		JWTAlgorithm:       "HS256",
-		AccessTokenMinutes: 15,
-		RefreshTokenDays:   30,
-		RefreshTokenRotate: true,
-	}
+	cfg := getTestConfig()
+	cfg.AccessTokenMinutes = 15
+	cfg.RefreshTokenDays = 30
+	cfg.RefreshTokenRotate = true
 
 	userID := bson.NewObjectID()
 	tokenID := bson.NewObjectID()
@@ -360,7 +355,7 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 
 	user := &User{
 		ID:    userID,
-		Email: "test@example.com",
+		Email: testUserEmail,
 	}
 
 	t.Run("standalone MongoDB fallback", func(t *testing.T) {
@@ -426,12 +421,8 @@ func TestService_Refresh_StandaloneMongo(t *testing.T) {
 	})
 }
 
-func TestService_SignIn(t *testing.T) {
-	cfg := config.Config{
-		BcryptCost:   12,
-		JWTSecret:    "super-secret-jwt-key-at-least-32-chars",
-		JWTAlgorithm: "HS256",
-	}
+func TestServiceSignIn(t *testing.T) {
+	cfg := getTestConfig()
 
 	password := "Password123"
 	hashedPassword, err := crypto.HashPassword(password, 12)
@@ -447,16 +438,16 @@ func TestService_SignIn(t *testing.T) {
 		{
 			name: "successful signin",
 			req: SignInRequest{
-				Email:    "test@example.com",
+				Email:    testUserEmail,
 				Password: password,
 			},
 			setup: func(repo *MockUsersRepo) {
 				user := &User{
 					ID:           bson.NewObjectID(),
-					Email:        "test@example.com",
+					Email:        testUserEmail,
 					PasswordHash: hashedPassword,
 				}
-				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(user, nil)
+				repo.On("FindByEmail", mock.Anything, testUserEmail).Return(user, nil)
 			},
 			wantErr: false,
 		},
@@ -475,16 +466,16 @@ func TestService_SignIn(t *testing.T) {
 		{
 			name: "wrong password",
 			req: SignInRequest{
-				Email:    "test@example.com",
+				Email:    testUserEmail,
 				Password: "WrongPassword123",
 			},
 			setup: func(repo *MockUsersRepo) {
 				user := &User{
 					ID:           bson.NewObjectID(),
-					Email:        "test@example.com",
+					Email:        testUserEmail,
 					PasswordHash: hashedPassword,
 				}
-				repo.On("FindByEmail", mock.Anything, "test@example.com").Return(user, nil)
+				repo.On("FindByEmail", mock.Anything, testUserEmail).Return(user, nil)
 			},
 			wantErr: true,
 			errMsg:  ErrInvalidCredentials.Error(),

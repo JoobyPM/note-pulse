@@ -15,6 +15,12 @@ import (
 
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+var (
+	ErrRepositoryMsg = "repository error"
+	ErrDBMsg         = "db error"
+	UpdateNoteMsg    = "notes.UpdateNote"
+)
+
 // MockNotesRepo is a mock implementation of Repository
 type MockNotesRepo struct {
 	mock.Mock
@@ -55,7 +61,7 @@ func (m *MockBus) Broadcast(ctx context.Context, ev NoteEvent) {
 	m.Called(ctx, ev)
 }
 
-func TestService_Create(t *testing.T) {
+func TestServiceCreate(t *testing.T) {
 	userID := bson.NewObjectID()
 
 	tests := []struct {
@@ -81,13 +87,13 @@ func TestService_Create(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "repository error",
+			name: ErrRepositoryMsg,
 			req: CreateNoteRequest{
 				Title: "Test Note",
 				Body:  "Test body",
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New("db error"))
+				repo.On("Create", mock.Anything, mock.AnythingOfType("*notes.Note")).Return(errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrCreateNote.Error(),
@@ -126,7 +132,7 @@ func TestService_Create(t *testing.T) {
 	}
 }
 
-func TestService_List(t *testing.T) {
+func TestServiceList(t *testing.T) {
 	userID := bson.NewObjectID()
 	noteID1 := bson.NewObjectID()
 	noteID2 := bson.NewObjectID()
@@ -212,10 +218,10 @@ func TestService_List(t *testing.T) {
 			errMsg:  ErrInvalidCursor.Error(),
 		},
 		{
-			name: "repository error",
+			name: ErrRepositoryMsg,
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New("db error"))
+				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrListNotes.Error(),
@@ -249,7 +255,7 @@ func TestService_List(t *testing.T) {
 	}
 }
 
-func TestService_Update(t *testing.T) {
+func TestServiceUpdate(t *testing.T) {
 	userID := bson.NewObjectID()
 	noteID := bson.NewObjectID()
 	title := "Updated Title"
@@ -282,7 +288,7 @@ func TestService_Update(t *testing.T) {
 				Color: &color,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(updatedNote, nil)
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType(UpdateNoteMsg)).Return(updatedNote, nil)
 				bus.On("Broadcast", mock.Anything, mock.MatchedBy(func(ev NoteEvent) bool {
 					return ev.Type == "updated"
 				})).Return()
@@ -295,18 +301,18 @@ func TestService_Update(t *testing.T) {
 				Title: &title,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType(UpdateNoteMsg)).Return(nil, ErrNoteNotFound)
 			},
 			wantErr: true,
 			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
-			name: "repository error",
+			name: ErrRepositoryMsg,
 			req: UpdateNoteRequest{
 				Title: &title,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, errors.New("db error"))
+				repo.On("Update", mock.Anything, userID, noteID, mock.AnythingOfType(UpdateNoteMsg)).Return(nil, errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrUpdateNote.Error(),
@@ -341,7 +347,7 @@ func TestService_Update(t *testing.T) {
 	}
 }
 
-func TestService_Delete(t *testing.T) {
+func TestServiceDelete(t *testing.T) {
 	userID := bson.NewObjectID()
 	noteID := bson.NewObjectID()
 
@@ -370,9 +376,9 @@ func TestService_Delete(t *testing.T) {
 			errMsg:  ErrNoteNotFound.Error(),
 		},
 		{
-			name: "repository error",
+			name: ErrRepositoryMsg,
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New("db error"))
+				repo.On("Delete", mock.Anything, userID, noteID).Return(errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrDeleteNote.Error(),
@@ -401,7 +407,7 @@ func TestService_Delete(t *testing.T) {
 	}
 }
 
-func TestService_CrossUserSafety(t *testing.T) {
+func TestServiceCrossUserSafety(t *testing.T) {
 	user2 := bson.NewObjectID()
 	noteID := bson.NewObjectID()
 
@@ -415,7 +421,7 @@ func TestService_CrossUserSafety(t *testing.T) {
 			operation: "update",
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				// User2 tries to update User1's note - should fail
-				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType("notes.UpdateNote")).Return(nil, ErrNoteNotFound)
+				repo.On("Update", mock.Anything, user2, noteID, mock.AnythingOfType(UpdateNoteMsg)).Return(nil, ErrNoteNotFound)
 			},
 		},
 		{

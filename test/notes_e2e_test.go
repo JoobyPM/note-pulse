@@ -14,6 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	notesPath = "/api/v1/notes"
+	authPath  = "/api/v1/auth"
+)
+
+// NoteParams holds the parameters for creating a note
+type NoteParams struct {
+	Title string
+	Body  string
+	Color string
+}
+
 func TestNotesE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 	testEmail := "noteuser@example.com"
@@ -24,7 +36,11 @@ func TestNotesE2E(t *testing.T) {
 	var noteAID string
 
 	t.Run("create_note_A", func(t *testing.T) {
-		noteAID = createAndVerifyNote(t, env, headers, "A", "Note A content", "#FF0000")
+		noteAID = createAndVerifyNote(t, env, headers, NoteParams{
+			Title: "A",
+			Body:  "Note A content",
+			Color: "#FF0000",
+		})
 	})
 
 	t.Run("list_notes_expect_one", func(t *testing.T) {
@@ -45,14 +61,14 @@ func TestNotesE2E(t *testing.T) {
 }
 
 // createAndVerifyNote creates a note and returns its ID
-func createAndVerifyNote(t *testing.T, env *TestEnvironment, headers map[string]string, title, body, color string) string {
-	payload := map[string]any{"title": title, "body": body, "color": color}
-	noteResp := makeHTTPRequest(t, "POST", env.BaseURL+"/api/v1/notes", payload, headers, http.StatusCreated)
+func createAndVerifyNote(t *testing.T, env *TestEnvironment, headers map[string]string, params NoteParams) string {
+	payload := map[string]any{"title": params.Title, "body": params.Body, "color": params.Color}
+	noteResp := makeHTTPRequest(t, "POST", env.BaseURL+notesPath, payload, headers, http.StatusCreated)
 
 	note := noteResp["note"].(map[string]any)
-	assert.Equal(t, title, note["title"])
-	assert.Equal(t, body, note["body"])
-	assert.Equal(t, color, note["color"])
+	assert.Equal(t, params.Title, note["title"])
+	assert.Equal(t, params.Body, note["body"])
+	assert.Equal(t, params.Color, note["color"])
 	assert.Contains(t, note, "id")
 	assert.Contains(t, note, "created_at")
 	assert.Contains(t, note, "updated_at")
@@ -64,7 +80,7 @@ func createAndVerifyNote(t *testing.T, env *TestEnvironment, headers map[string]
 
 // verifyNotesList verifies the notes list response
 func verifyNotesList(t *testing.T, env *TestEnvironment, headers map[string]string, expectedCount int, expectedID, expectedTitle string) {
-	listResp := makeHTTPRequest(t, "GET", env.BaseURL+"/api/v1/notes", nil, headers, http.StatusOK)
+	listResp := makeHTTPRequest(t, "GET", env.BaseURL+notesPath, nil, headers, http.StatusOK)
 
 	notes := listResp["notes"].([]any)
 	assert.Len(t, notes, expectedCount)
@@ -84,7 +100,11 @@ func testWebSocketCRUDOperations(t *testing.T, env *TestEnvironment, authToken s
 	time.Sleep(100 * time.Millisecond) // Allow connection to establish
 
 	// Create note B and verify WebSocket event
-	noteBID := createNoteAndVerifyWebSocketEvent(t, env, headers, messages, "B", "Note B content", "#00FF00", "created")
+	noteBID := createNoteAndVerifyWebSocketEvent(t, env, headers, messages, NoteParams{
+		Title: "B",
+		Body:  "Note B content",
+		Color: "#00FF00",
+	}, "created")
 
 	// Update note A and verify WebSocket event
 	updateNoteAndVerifyWebSocketEvent(t, env, headers, messages, noteAID, "A Updated", "Updated content for note A")
@@ -115,27 +135,27 @@ func startWebSocketListener(c *websocket.Conn, messages chan map[string]any) {
 }
 
 // createNoteAndVerifyWebSocketEvent creates a note and verifies the WebSocket event
-func createNoteAndVerifyWebSocketEvent(t *testing.T, env *TestEnvironment, headers map[string]string, messages chan map[string]any, title, body, color, eventType string) string {
-	payload := map[string]any{"title": title, "body": body, "color": color}
-	noteResp := makeHTTPRequest(t, "POST", env.BaseURL+"/api/v1/notes", payload, headers, http.StatusCreated)
+func createNoteAndVerifyWebSocketEvent(t *testing.T, env *TestEnvironment, headers map[string]string, messages chan map[string]any, params NoteParams, eventType string) string {
+	payload := map[string]any{"title": params.Title, "body": params.Body, "color": params.Color}
+	noteResp := makeHTTPRequest(t, "POST", env.BaseURL+notesPath, payload, headers, http.StatusCreated)
 
 	note := noteResp["note"].(map[string]any)
 	noteID := note["id"].(string)
 
-	verifyWebSocketMessage(t, messages, eventType, noteID, title, "", "")
+	verifyWebSocketMessage(t, messages, eventType, noteID, params.Title, "", "")
 	return noteID
 }
 
 // updateNoteAndVerifyWebSocketEvent updates a note and verifies the WebSocket event
 func updateNoteAndVerifyWebSocketEvent(t *testing.T, env *TestEnvironment, headers map[string]string, messages chan map[string]any, noteID, newTitle, newBody string) {
 	payload := map[string]any{"title": newTitle, "body": newBody}
-	makeHTTPRequest(t, "PATCH", env.BaseURL+"/api/v1/notes/"+noteID, payload, headers, http.StatusOK)
+	makeHTTPRequest(t, "PATCH", env.BaseURL+notesPath+"/"+noteID, payload, headers, http.StatusOK)
 	verifyWebSocketMessage(t, messages, "updated", noteID, newTitle, newBody, "")
 }
 
 // deleteNoteAndVerifyWebSocketEvent deletes a note and verifies the WebSocket event
 func deleteNoteAndVerifyWebSocketEvent(t *testing.T, env *TestEnvironment, headers map[string]string, messages chan map[string]any, noteID string) {
-	makeHTTPRequest(t, "DELETE", env.BaseURL+"/api/v1/notes/"+noteID, nil, headers, http.StatusNoContent)
+	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+noteID, nil, headers, http.StatusNoContent)
 	verifyWebSocketMessage(t, messages, "deleted", noteID, "", "", "deleted")
 }
 
@@ -177,7 +197,7 @@ func createNotesForPagination(t *testing.T, env *TestEnvironment, headers map[st
 			"title": fmt.Sprintf("Note %d", i),
 			"body":  fmt.Sprintf("Content for note %d", i),
 		}
-		makeHTTPRequest(t, "POST", env.BaseURL+"/api/v1/notes", payload, headers, http.StatusCreated)
+		makeHTTPRequest(t, "POST", env.BaseURL+notesPath, payload, headers, http.StatusCreated)
 	}
 }
 
@@ -188,7 +208,7 @@ func testPaginationPages(t *testing.T, env *TestEnvironment, headers map[string]
 
 	// Test 3 pages of pagination
 	for page := 1; page <= 3; page++ {
-		url := env.BaseURL + "/api/v1/notes?limit=50"
+		url := env.BaseURL + notesPath + "?limit=50"
 		if cursor != "" {
 			url += "&cursor=" + cursor
 		}
@@ -226,7 +246,7 @@ func testCrossUserAuthorization(t *testing.T, env *TestEnvironment, testPassword
 
 // testUnauthorizedNoteAccess tests unauthorized access to notes
 func testUnauthorizedNoteAccess(t *testing.T, env *TestEnvironment, headers map[string]string, noteID, method string, payload map[string]any) {
-	url := env.BaseURL + "/api/v1/notes/" + noteID
+	url := env.BaseURL + notesPath + "/" + noteID
 	errorResp := makeHTTPRequest(t, method, url, payload, headers, http.StatusNotFound)
 
 	if msg, ok := errorResp["message"].(string); ok {
@@ -261,7 +281,7 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 		"password": password,
 	}
 
-	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpPayload, nil)
+	resp, err := httpJSON("POST", env.BaseURL+authPath+"/sign-up", signUpPayload, nil)
 	require.NoError(t, err)
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -271,7 +291,7 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 
 	if resp.StatusCode == http.StatusBadRequest {
 		// User might already exist, try sign in
-		resp, err = httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-in", signUpPayload, nil)
+		resp, err = httpJSON("POST", env.BaseURL+authPath+"/sign-in", signUpPayload, nil)
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {

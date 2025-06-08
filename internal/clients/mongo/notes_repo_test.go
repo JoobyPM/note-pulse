@@ -11,28 +11,34 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-func TestNotesRepo_Structure(t *testing.T) {
+const (
+	testColor = "#FF0000"
+	testTitle = "Test Note"
+	testBody  = "Test body"
+)
+
+func TestNotesRepoStructure(t *testing.T) {
 	note := &notes.Note{
 		ID:     bson.NewObjectID(),
 		UserID: bson.NewObjectID(),
-		Title:  "Test Note",
-		Body:   "Test body",
-		Color:  "#FF0000",
+		Title:  testTitle,
+		Body:   testBody,
+		Color:  testColor,
 	}
 
 	// Validate note structure
 	assert.NotNil(t, note)
 	assert.False(t, note.ID.IsZero())
 	assert.False(t, note.UserID.IsZero())
-	assert.Equal(t, "Test Note", note.Title)
-	assert.Equal(t, "Test body", note.Body)
-	assert.Equal(t, "#FF0000", note.Color)
+	assert.Equal(t, testTitle, note.Title)
+	assert.Equal(t, testBody, note.Body)
+	assert.Equal(t, testColor, note.Color)
 }
 
-func TestNotesRepo_UpdateNote(t *testing.T) {
+func TestNotesRepoUpdateNote(t *testing.T) {
 	title := "Updated Title"
 	body := "Updated Body"
-	color := "#00FF00"
+	color := testColor
 
 	update := notes.UpdateNote{
 		Title: &title,
@@ -45,10 +51,10 @@ func TestNotesRepo_UpdateNote(t *testing.T) {
 	assert.NotNil(t, update.Color)
 	assert.Equal(t, "Updated Title", *update.Title)
 	assert.Equal(t, "Updated Body", *update.Body)
-	assert.Equal(t, "#00FF00", *update.Color)
+	assert.Equal(t, testColor, *update.Color)
 }
 
-func TestNotesRepo_PartialUpdate(t *testing.T) {
+func TestNotesRepoPartialUpdate(t *testing.T) {
 	title := "Only Title Updated"
 
 	update := notes.UpdateNote{
@@ -62,13 +68,13 @@ func TestNotesRepo_PartialUpdate(t *testing.T) {
 	assert.Equal(t, "Only Title Updated", *update.Title)
 }
 
-func TestNoteEvent_Structure(t *testing.T) {
+func TestNoteEventStructure(t *testing.T) {
 	note := &notes.Note{
 		ID:     bson.NewObjectID(),
 		UserID: bson.NewObjectID(),
-		Title:  "Event Note",
-		Body:   "Event body",
-		Color:  "#FF0000",
+		Title:  testTitle,
+		Body:   testBody,
+		Color:  testColor,
 	}
 
 	event := notes.NoteEvent{
@@ -78,7 +84,7 @@ func TestNoteEvent_Structure(t *testing.T) {
 
 	assert.Equal(t, "created", event.Type)
 	assert.NotNil(t, event.Note)
-	assert.Equal(t, "Event Note", event.Note.Title)
+	assert.Equal(t, testTitle, event.Note.Title)
 }
 
 func TestObjectIDConversions(t *testing.T) {
@@ -105,7 +111,7 @@ func TestUserIDValidation(t *testing.T) {
 	assert.False(t, user2.IsZero())
 }
 
-func TestNewNotesRepo_IndexCreationError(t *testing.T) {
+func TestNewNotesRepoIndexCreationError(t *testing.T) {
 	// This test validates the error handling logic signature
 
 	var db *mongo.Database // nil db will cause panic, but that's expected behavior
