@@ -21,6 +21,10 @@ type HTTPJSONStep struct {
 	Validator      func(*testing.T, map[string]any) // Optional response validator
 }
 
+const (
+	msgFailedToCloseResponseBody = "failed to close response body: %v"
+)
+
 // ExecuteHTTPJSONStep executes a single HTTP JSON step and handles all the common boilerplate
 func ExecuteHTTPJSONStep(t *testing.T, step HTTPJSONStep, baseURL string) map[string]any {
 	t.Helper()
@@ -31,7 +35,7 @@ func ExecuteHTTPJSONStep(t *testing.T, step HTTPJSONStep, baseURL string) map[st
 	require.NoError(t, err)
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
+			t.Errorf(msgFailedToCloseResponseBody, err)
 		}
 	}()
 

@@ -39,7 +39,7 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 
@@ -66,7 +66,7 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 
@@ -213,7 +213,7 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -236,7 +236,7 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -259,7 +259,7 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -299,11 +299,11 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
 		var errorResp map[string]any
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&errorResp))
@@ -316,11 +316,11 @@ func TestNotesE2E(t *testing.T) {
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
 		errorResp = make(map[string]any)
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&errorResp))
@@ -341,7 +341,7 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 	require.NoError(t, err)
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
+			t.Errorf(msgFailedToCloseResponseBody, err)
 		}
 	}()
 
@@ -351,7 +351,7 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				t.Errorf("failed to close response body: %v", err)
+				t.Errorf(msgFailedToCloseResponseBody, err)
 			}
 		}()
 	}

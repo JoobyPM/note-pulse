@@ -318,7 +318,7 @@ func doJSONPost(t *testing.T, c *http.Client, url string, body any) (int, error)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			t.Errorf("failed to close response body: %v", err)
+			t.Errorf(msgFailedToCloseResponseBody, err)
 		}
 	}()
 

@@ -36,11 +36,12 @@ const (
 	codeReportedUnhealthy = 5
 
 	// log / error templates
-	msgRequestFailed     = "request failed: %v"
-	msgBadHTTPStatus     = "unexpected HTTP status %d"
-	msgDecodeError       = "decode error: %v"
-	msgReportedUnhealthy = "service reported unhealthy: %q"
-	msgHealthy           = "service healthy on port %d"
+	msgRequestFailed             = "request failed: %v"
+	msgBadHTTPStatus             = "unexpected HTTP status %d"
+	msgDecodeError               = "decode error: %v"
+	msgReportedUnhealthy         = "service reported unhealthy: %q"
+	msgHealthy                   = "service healthy on port %d"
+	msgFailedToCloseResponseBody = "failed to close response body: %v"
 )
 
 // healthResp mirrors the optional JSON body { "status": "ok" }.
@@ -60,7 +61,7 @@ func main() {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Printf("failed to close response body: %v", err)
+			log.Printf(msgFailedToCloseResponseBody, err)
 		}
 	}()
 
