@@ -31,12 +31,12 @@ func (m *MockNotesRepo) Create(ctx context.Context, note *Note) error {
 	return args.Error(0)
 }
 
-func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, after bson.ObjectID, limit int) ([]*Note, error) {
-	args := m.Called(ctx, userID, after, limit)
+func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest) ([]*Note, int64, int64, error) {
+	args := m.Called(ctx, userID, filter)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, 0, 0, args.Error(3)
 	}
-	return args.Get(0).([]*Note), args.Error(1)
+	return args.Get(0).([]*Note), args.Get(1).(int64), args.Get(2).(int64), args.Error(3)
 }
 
 func (m *MockNotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error) {
@@ -169,12 +169,16 @@ func TestServiceList(t *testing.T) {
 			name: "successful list with default limit",
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(mockNotes, nil)
+				expectedReq := ListNotesRequest{Limit: 51}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes, int64(100), int64(200), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 2)
 				assert.Empty(t, resp.NextCursor) // Less than limit, no next cursor
+				assert.False(t, resp.HasMore)    // Less than limit, no more pages
+				assert.Equal(t, int64(100), resp.TotalCount)
+				assert.Equal(t, int64(200), resp.TotalCountUnfiltered)
 			},
 		},
 		{
@@ -183,12 +187,16 @@ func TestServiceList(t *testing.T) {
 				Limit: 25,
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 25).Return(mockNotes[:1], nil)
+				expectedReq := ListNotesRequest{Limit: 26}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes[:1], int64(50), int64(80), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 1)
 				assert.Empty(t, resp.NextCursor)
+				assert.False(t, resp.HasMore)
+				assert.Equal(t, int64(50), resp.TotalCount)
+				assert.Equal(t, int64(80), resp.TotalCountUnfiltered)
 			},
 		},
 		{
@@ -198,13 +206,87 @@ func TestServiceList(t *testing.T) {
 				Cursor: noteID1.Hex(),
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, noteID1, 2).Return(mockNotes, nil)
+				// Return 3 notes (limit+1) to simulate having more data
+				threeNotes := []*Note{mockNotes[0], mockNotes[1], mockNotes[0]} // reuse first note as third
+				expectedReq := ListNotesRequest{Limit: 3, Cursor: noteID1.Hex()}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(threeNotes, int64(200), int64(300), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
 				assert.Len(t, resp.Notes, 2)
-				assert.Equal(t, noteID2.Hex(), resp.NextCursor) // Full page, has next cursor
+				assert.Equal(t, noteID2.Hex(), resp.NextCursor) // Has more data, so has next cursor
+				assert.True(t, resp.HasMore)                    // Has more data
+				assert.Equal(t, int64(200), resp.TotalCount)
+				assert.Equal(t, int64(300), resp.TotalCountUnfiltered)
 			},
+		},
+		{
+			name: "title sorting with pagination - no duplicates or gaps",
+			req: ListNotesRequest{
+				Limit: 1,
+				Sort:  "title",
+				Order: "asc",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// Mock out-of-order _id but ordered by title
+				note1 := &Note{
+					ID:        noteID2, // Note: ID2 comes first despite being Note 1 alphabetically
+					UserID:    userID,
+					Title:     "A First Note", // Alphabetically first
+					Body:      "Body A",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+				note2 := &Note{
+					ID:        noteID1, // Note: ID1 comes second
+					UserID:    userID,
+					Title:     "B Second Note", // Alphabetically second
+					Body:      "Body B",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+
+				// Return limit+1 items to simulate having more data
+				expectedReq := ListNotesRequest{Limit: 2, Sort: "title", Order: "asc"}
+				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{note1, note2}, int64(2), int64(5), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 1)
+				assert.Equal(t, "A First Note", resp.Notes[0].Title)
+				assert.Equal(t, noteID2.Hex(), resp.NextCursor)
+				assert.True(t, resp.HasMore)
+				assert.Equal(t, int64(2), resp.TotalCount)
+				assert.Equal(t, int64(5), resp.TotalCountUnfiltered)
+			},
+		},
+		{
+			name: "security test - regex metacharacters escaped",
+			req: ListNotesRequest{
+				Q: ".^$",
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				expectedReq := ListNotesRequest{Limit: 51, Q: ".^$"}
+				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{}, int64(0), int64(10), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 0)
+				assert.False(t, resp.HasMore)
+				assert.Equal(t, int64(0), resp.TotalCount)
+				assert.Equal(t, int64(10), resp.TotalCountUnfiltered)
+			},
+		},
+		{
+			name: "limit validation error",
+			req: ListNotesRequest{
+				Limit: 101, // Exceeds max of 100
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrInvalidLimit.Error(),
 		},
 		{
 			name: ErrInvalidCursor.Error(),
@@ -221,7 +303,8 @@ func TestServiceList(t *testing.T) {
 			name: ErrRepositoryMsg,
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
-				repo.On("List", mock.Anything, userID, bson.ObjectID{}, 50).Return(nil, errors.New(ErrDBMsg))
+				expectedReq := ListNotesRequest{Limit: 51}
+				repo.On("List", mock.Anything, userID, expectedReq).Return(nil, int64(0), int64(0), errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrListNotes.Error(),

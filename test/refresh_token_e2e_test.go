@@ -13,7 +13,7 @@ import (
 	"note-pulse/internal/services/auth"
 )
 
-func TestRefreshTokenFlow_E2E(t *testing.T) {
+func TestRefreshTokenFlowE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 
 	email := "refresh-test@example.com"
@@ -24,7 +24,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 		"email":    email,
 		"password": password,
 	}
-	signupResp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signupBody, nil)
+	signupResp, err := httpJSON("POST", env.BaseURL+signUpEndpoint, signupBody, nil)
 	require.NoError(t, err, "should sign up")
 	defer signupResp.Body.Close()
 	require.Equal(t, http.StatusCreated, signupResp.StatusCode, "should sign up")
@@ -42,10 +42,10 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	refreshBody := map[string]string{
 		"refresh_token": refreshToken,
 	}
-	refreshResp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshBody, nil)
-	require.NoError(t, err, "should refresh")
+	refreshResp, err := httpJSON("POST", env.BaseURL+refreshEndpoint, refreshBody, nil)
+	require.NoError(t, err, shouldRefreshedMsg)
 	defer refreshResp.Body.Close()
-	require.Equal(t, http.StatusOK, refreshResp.StatusCode, "should refresh")
+	require.Equal(t, http.StatusOK, refreshResp.StatusCode, shouldRefreshedMsg)
 
 	var refreshResult auth.Response
 	err = json.NewDecoder(refreshResp.Body).Decode(&refreshResult)
@@ -63,7 +63,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + newAccessToken,
 	}
-	profileResp, err := httpJSON("GET", env.BaseURL+"/api/v1/me", nil, headers)
+	profileResp, err := httpJSON("GET", env.BaseURL+meEndpoint, nil, headers)
 	require.NoError(t, err, "should get profile")
 	defer profileResp.Body.Close()
 	require.Equal(t, http.StatusOK, profileResp.StatusCode, "should get profile")
@@ -77,7 +77,7 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	signoutBody := map[string]string{
 		"refresh_token": newRefreshToken,
 	}
-	signoutResp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-out", signoutBody, headers)
+	signoutResp, err := httpJSON("POST", env.BaseURL+signOutEndpoint, signoutBody, headers)
 	require.NoError(t, err, "should sign out")
 	defer signoutResp.Body.Close()
 	require.Equal(t, http.StatusOK, signoutResp.StatusCode, "should sign out")
@@ -88,8 +88,8 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	assert.Equal(t, "Successfully signed out", signoutResult["message"], "should have message")
 
 	t.Log("Step 5: Try to use the refresh token again (should fail)")
-	refreshResp2, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshBody, nil)
-	require.NoError(t, err, "should refresh")
+	refreshResp2, err := httpJSON("POST", env.BaseURL+refreshEndpoint, refreshBody, nil)
+	require.NoError(t, err, shouldRefreshedMsg)
 	defer refreshResp2.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, refreshResp2.StatusCode, "should be unauthorized")
 
@@ -97,13 +97,13 @@ func TestRefreshTokenFlow_E2E(t *testing.T) {
 	refreshBody2 := map[string]string{
 		"refresh_token": newRefreshToken,
 	}
-	refreshResp3, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshBody2, nil)
-	require.NoError(t, err, "should refresh")
+	refreshResp3, err := httpJSON("POST", env.BaseURL+refreshEndpoint, refreshBody2, nil)
+	require.NoError(t, err, shouldRefreshedMsg)
 	defer refreshResp3.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, refreshResp3.StatusCode, "should be unauthorized")
 }
 
-func TestRefreshTokenExpiry_E2E(t *testing.T) {
+func TestRefreshTokenExpiryE2E(t *testing.T) {
 	// This test would require manipulating time or using very short-lived tokens
 	// For now, we'll test with invalid refresh tokens
 	env := SetupTestEnvironment(t)
@@ -112,7 +112,7 @@ func TestRefreshTokenExpiry_E2E(t *testing.T) {
 	refreshBody := map[string]string{
 		"refresh_token": "invalid-refresh-token",
 	}
-	refreshResp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/refresh", refreshBody, nil)
+	refreshResp, err := httpJSON("POST", env.BaseURL+refreshEndpoint, refreshBody, nil)
 	require.NoError(t, err)
 	defer refreshResp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, refreshResp.StatusCode)

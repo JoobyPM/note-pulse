@@ -3,6 +3,7 @@ module note-pulse
 go 1.24.2
 
 require (
+	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gofiber/adaptor/v2 v2.2.1
 	github.com/gofiber/contrib/jwt v1.1.2

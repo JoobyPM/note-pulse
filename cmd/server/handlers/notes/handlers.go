@@ -2,9 +2,9 @@ package notes
 
 import (
 	"context"
-
+	"errors"
 	"note-pulse/cmd/server/handlers/handlerutil"
-	_ "note-pulse/cmd/server/handlers/httperr"
+	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/services/notes"
 
 	"github.com/go-playground/validator/v10"
@@ -65,13 +65,17 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 }
 
 // List handles notes listing with pagination
-// @Summary List notes with cursor-based pagination
+// @Summary List notes with cursor-based pagination, search, filtering and sorting
 // @Tags notes
 // @Accept json
 // @Produce json
 // @Security Bearer
 // @Param limit query int false "Limit (default: 50, max: 100)" minimum(1) maximum(100)
 // @Param cursor query string false "Cursor for pagination"
+// @Param q query string false "Full-text search in title or body"
+// @Param color query string false "Hex color filter (#RRGGBB)"
+// @Param sort query string false "Sort field: created_at|updated_at|title"
+// @Param order query string false "asc|desc (default desc)"
 // @Success 200 {object} notes.ListNotesResponse
 // @Failure 400 {object} httperr.E
 // @Failure 401 {object} httperr.E
@@ -89,6 +93,9 @@ func (h *Handlers) List(c *fiber.Ctx) error {
 
 	resp, err := h.service.List(c.Context(), userID, req)
 	if err != nil {
+		if errors.Is(err, notes.ErrBadRequest) {
+			return httperr.Fail(httperr.ErrBadRequest)
+		}
 		return handlerutil.HandleServiceError(err, "List", userID, nil, notes.ErrNoteNotFound)
 	}
 

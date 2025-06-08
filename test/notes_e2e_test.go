@@ -3,21 +3,32 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const (
 	notesPath = "/api/v1/notes"
 	authPath  = "/api/v1/auth"
+	testColor = "#FF0000"
 )
+
+func getAuthHeaders(t *testing.T, token string) map[string]string {
+	t.Helper()
+	return map[string]string{"Authorization": "Bearer " + token}
+}
 
 // NoteParams holds the parameters for creating a note
 type NoteParams struct {
@@ -31,7 +42,7 @@ func TestNotesE2E(t *testing.T) {
 	testEmail := "noteuser@example.com"
 	testPassword := "Password123"
 	authToken := setupTestUser(t, env, testEmail, testPassword)
-	headers := map[string]string{"Authorization": "Bearer " + authToken}
+	headers := getAuthHeaders(t, authToken)
 
 	var noteAID string
 
@@ -39,7 +50,7 @@ func TestNotesE2E(t *testing.T) {
 		noteAID = createAndVerifyNote(t, env, headers, NoteParams{
 			Title: "A",
 			Body:  "Note A content",
-			Color: "#FF0000",
+			Color: testColor,
 		})
 	})
 
@@ -55,8 +66,22 @@ func TestNotesE2E(t *testing.T) {
 		testPaginationWith120Notes(t, env, headers)
 	})
 
+	t.Run("test_advanced_listing_features", func(t *testing.T) {
+		testAdvancedListingFeatures(t, env, headers)
+	})
+
 	t.Run("test_note_not_found_cross_user", func(t *testing.T) {
 		testCrossUserAuthorization(t, env, testPassword, noteAID)
+	})
+
+	t.Run("test_compound_indexes_exist", func(t *testing.T) {
+		// Ensure notes repository is initialized by creating a note first
+		_ = createAndVerifyNote(t, env, headers, NoteParams{
+			Title: "Index Test Note",
+			Body:  "This note ensures the notes repository is initialized",
+			Color: testColor,
+		})
+		testCompoundIndexesExist(t, env)
 	})
 }
 
@@ -103,7 +128,7 @@ func testWebSocketCRUDOperations(t *testing.T, env *TestEnvironment, authToken s
 	noteBID := createNoteAndVerifyWebSocketEvent(t, env, headers, messages, NoteParams{
 		Title: "B",
 		Body:  "Note B content",
-		Color: "#00FF00",
+		Color: testColor,
 	}, "created")
 
 	// Update note A and verify WebSocket event
@@ -238,7 +263,7 @@ func testPaginationPages(t *testing.T, env *TestEnvironment, headers map[string]
 // testCrossUserAuthorization tests cross-user authorization
 func testCrossUserAuthorization(t *testing.T, env *TestEnvironment, testPassword, noteAID string) {
 	otherToken := setupTestUser(t, env, "otheruser@example.com", testPassword)
-	otherHeaders := map[string]string{"Authorization": "Bearer " + otherToken}
+	otherHeaders := getAuthHeaders(t, otherToken)
 
 	testUnauthorizedNoteAccess(t, env, otherHeaders, noteAID, "PATCH", map[string]any{"title": "Hacked"})
 	testUnauthorizedNoteAccess(t, env, otherHeaders, noteAID, "DELETE", nil)
@@ -310,4 +335,209 @@ func setupTestUser(t *testing.T, env *TestEnvironment, email, password string) s
 	require.NotEmpty(t, token)
 
 	return token
+}
+
+// testAdvancedListingFeatures tests the new search, filter, sort, and pagination features
+func testAdvancedListingFeatures(t *testing.T, env *TestEnvironment, _ map[string]string) {
+	// Use a separate user for this test to ensure isolation
+	advancedTestToken := setupTestUser(t, env, "advancedtest@example.com", "Password123")
+	advancedHeaders := getAuthHeaders(t, advancedTestToken)
+	// Create test notes with different colors and content
+	redNote1 := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Meeting Notes",
+		Body:  "Important meeting about quarterly targets",
+		Color: testColor,
+	})
+
+	redNote2 := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Project Planning",
+		Body:  "Meeting to discuss project milestones",
+		Color: testColor,
+	})
+
+	blueNote := createAndVerifyNote(t, env, advancedHeaders, NoteParams{
+		Title: "Shopping List",
+		Body:  "Groceries and household items",
+		Color: "#0000FF", // Blue color instead of red
+	})
+
+	// Test color filter - should return 2 red notes
+	t.Run("color_filter", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?color=%23FF0000"
+		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
+
+		notes := resp["notes"].([]any)
+		assert.Len(t, notes, 2, "should find 2 red notes")
+
+		// Check response includes pagination metadata
+		assert.Contains(t, resp, "has_more")
+		assert.Contains(t, resp, "total_count")
+		assert.False(t, resp["has_more"].(bool))
+		assert.Equal(t, float64(2), resp["total_count"].(float64))
+
+		// Verify all returned notes are red
+		for _, note := range notes {
+			noteMap := note.(map[string]any)
+			assert.Equal(t, testColor, noteMap["color"])
+		}
+	})
+
+	// Test search functionality - should find notes containing "meeting"
+	t.Run("search_functionality", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?q=meeting"
+		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
+
+		notes := resp["notes"].([]any)
+		assert.Len(t, notes, 2, "should find 2 notes containing 'meeting'")
+
+		// Verify search results contain the search term
+		for _, note := range notes {
+			noteMap := note.(map[string]any)
+			title := noteMap["title"].(string)
+			body := noteMap["body"].(string)
+
+			// Should contain "meeting" or "Meeting" in title or body
+			containsInTitle := contains(title, "meeting") || contains(title, "Meeting")
+			containsInBody := contains(body, "meeting") || contains(body, "Meeting")
+			assert.True(t, containsInTitle || containsInBody,
+				"note should contain 'meeting' in title or body")
+		}
+	})
+
+	// Test sorting by title ascending - should return notes alphabetically
+	t.Run("sort_by_title_asc", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?sort=title&order=asc"
+		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
+
+		notes := resp["notes"].([]any)
+		assert.GreaterOrEqual(t, len(notes), 3, "should have at least 3 notes")
+
+		// Verify first note has alphabetically smallest title among our test notes
+		firstNote := notes[0].(map[string]any)
+		title := firstNote["title"].(string)
+
+		// Among our test notes, "Meeting Notes" should come first alphabetically
+		assert.Equal(t, "Meeting Notes", title, "first note should be 'Meeting Notes' when sorted by title asc")
+	})
+
+	// Test combined filters and pagination metadata
+	t.Run("combined_filters_and_metadata", func(t *testing.T) {
+		url := env.BaseURL + notesPath + "?color=%23FF0000&q=meeting&sort=title&order=desc&limit=1"
+		resp := makeHTTPRequest(t, "GET", url, nil, advancedHeaders, http.StatusOK)
+
+		notes := resp["notes"].([]any)
+		assert.Len(t, notes, 1, "should return 1 note with combined filters")
+
+		// Should have pagination metadata
+		assert.True(t, resp["has_more"].(bool), "should indicate more results available")
+		assert.NotEmpty(t, resp["next_cursor"], "should provide next cursor")
+
+		// Should be a red note containing "meeting"
+		note := notes[0].(map[string]any)
+		assert.Equal(t, testColor, note["color"])
+		title := note["title"].(string)
+		body := note["body"].(string)
+		containsInTitle := contains(title, "meeting") || contains(title, "Meeting")
+		containsInBody := contains(body, "meeting") || contains(body, "Meeting")
+		assert.True(t, containsInTitle || containsInBody)
+	})
+
+	// Clean up test notes
+	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+redNote1, nil, advancedHeaders, http.StatusNoContent)
+	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+redNote2, nil, advancedHeaders, http.StatusNoContent)
+	makeHTTPRequest(t, "DELETE", env.BaseURL+notesPath+"/"+blueNote, nil, advancedHeaders, http.StatusNoContent)
+}
+
+// contains is a helper function to check if a string contains a substring (case-insensitive)
+func contains(str, substr string) bool {
+	return len(str) >= len(substr) &&
+		(str == substr ||
+			(len(str) > len(substr) &&
+				containsHelper(str, substr)))
+}
+
+func containsHelper(str, substr string) bool {
+	for i := 0; i <= len(str)-len(substr); i++ {
+		if equalIgnoreCase(str[i:i+len(substr)], substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func equalIgnoreCase(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
+// testCompoundIndexesExist verifies that the required compound indexes are created
+func testCompoundIndexesExist(t *testing.T, _ *TestEnvironment) {
+	// Connect to MongoDB using environment variables
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mongoURI := os.Getenv("MONGO_URI")
+	require.NotEmpty(t, mongoURI, "MONGO_URI environment variable should be set")
+
+	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
+	require.NoError(t, err)
+	defer func() {
+		if err := client.Disconnect(ctx); err != nil {
+			t.Errorf("failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+
+	dbName := os.Getenv("MONGO_DB_NAME")
+	if dbName == "" {
+		dbName = "e2e" // fallback to default
+	}
+
+	db := client.Database(dbName)
+	collection := db.Collection("notes")
+
+	// List all indexes
+	cursor, err := collection.Indexes().List(ctx)
+	require.NoError(t, err)
+	defer cursor.Close(ctx)
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	require.NoError(t, err)
+
+	// Verify we have the expected number of indexes (at least the 3 compound indexes + default _id)
+	assert.GreaterOrEqual(t, len(indexes), 4, "should have at least 4 indexes including compound indexes")
+
+	// Expected index names that should exist
+	expectedIndexNames := []string{
+		"user_id_1__id_-1",               // Basic pagination index
+		"user_id_1_updated_at_-1__id_-1", // Updated_at sorting index
+		"user_id_1_created_at_-1__id_-1", // Created_at sorting index
+	}
+
+	// Check each expected index exists by name
+	for _, expectedName := range expectedIndexNames {
+		found := false
+		for _, index := range indexes {
+			if name, ok := index["name"].(string); ok && name == expectedName {
+				t.Logf("Found expected index: %s", expectedName)
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected compound index '%s' not found", expectedName)
+	}
 }

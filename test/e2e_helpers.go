@@ -22,6 +22,18 @@ import (
 	"note-pulse/internal/config"
 )
 
+const (
+	signUpEndpoint     = "/api/v1/auth/sign-up"
+	refreshEndpoint    = "/api/v1/auth/refresh"
+	signOutEndpoint    = "/api/v1/auth/sign-out"
+	signInEndpoint     = "/api/v1/auth/sign-in"
+	signOutAllEndpoint = "/api/v1/auth/sign-out-all"
+
+	meEndpoint = "/api/v1/me"
+
+	shouldRefreshedMsg = "should refresh"
+)
+
 // limitedWriter wraps an io.Writer and limits the amount of data written
 type limitedWriter struct {
 	w     io.Writer
@@ -242,6 +254,10 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 	baseURL, cmd, srvCancel, stderrBuf, err := startServerWithEnv(ctx, t, mongoURI, extraEnv)
 	require.NoError(t, err)
 
+	// Set environment variables for the test process to access MongoDB
+	t.Setenv("MONGO_URI", mongoURI)
+	t.Setenv("MONGO_DB_NAME", "e2e")
+
 	t.Cleanup(func() {
 		srvCancel() // cancels the context (still keep it)
 
@@ -284,7 +300,7 @@ func SetupTestEnvironmentWithEnv(t *testing.T, extraEnv map[string]string) *Test
 
 func signUp(t *testing.T, c *http.Client, baseURL, email, password string) {
 	t.Helper()
-	status, err := doJSONPost(t, c, baseURL+"/api/v1/auth/sign-up", map[string]string{
+	status, err := doJSONPost(t, c, baseURL+signUpEndpoint, map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -294,7 +310,7 @@ func signUp(t *testing.T, c *http.Client, baseURL, email, password string) {
 
 func signInExpect(t *testing.T, c *http.Client, baseURL, email, password string, want int) {
 	t.Helper()
-	status, err := doJSONPost(t, c, baseURL+"/api/v1/auth/sign-in", map[string]string{
+	status, err := doJSONPost(t, c, baseURL+signInEndpoint, map[string]string{
 		"email":    email,
 		"password": password,
 	})

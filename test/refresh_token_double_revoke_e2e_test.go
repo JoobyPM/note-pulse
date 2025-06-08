@@ -25,7 +25,7 @@ func TestRefreshTokenDoubleRevokeE2E(t *testing.T) {
 		"email":    email,
 		"password": password,
 	}
-	resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpBody, nil)
+	resp, err := httpJSON("POST", env.BaseURL+signUpEndpoint, signUpBody, nil)
 	require.NoError(t, err)
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -48,13 +48,13 @@ func TestRefreshTokenDoubleRevokeE2E(t *testing.T) {
 
 	t.Log("Step 2: First /auth/sign-out (should succeed)")
 	body := map[string]string{"refresh_token": refreshToken}
-	signOut1, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-out", body, authHdr)
+	signOut1, err := httpJSON("POST", env.BaseURL+signOutEndpoint, body, authHdr)
 	require.NoError(t, err)
 	defer signOut1.Body.Close()
 	require.Equal(t, http.StatusOK, signOut1.StatusCode)
 
 	t.Log("Step 3: Second /auth/sign-out with the *same* token (MUST fail)")
-	signOut2, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-out", body, authHdr)
+	signOut2, err := httpJSON("POST", env.BaseURL+signOutEndpoint, body, authHdr)
 	require.NoError(t, err)
 	defer signOut2.Body.Close()
 

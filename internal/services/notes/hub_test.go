@@ -115,7 +115,7 @@ func (td *concurrentBroadcastTestData) cleanup() {
 }
 
 // setupConcurrentBroadcastTest creates users, subscribers and notes for testing
-func setupConcurrentBroadcastTest(t *testing.T, hub *Hub, numUsers int) *concurrentBroadcastTestData {
+func setupConcurrentBroadcastTest(_ *testing.T, hub *Hub, numUsers int) *concurrentBroadcastTestData {
 	users := make([]bson.ObjectID, numUsers)
 	subs := make([]*Subscriber, numUsers)
 	cancels := make([]func(), numUsers)

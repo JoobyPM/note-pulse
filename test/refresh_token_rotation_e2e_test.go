@@ -9,11 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const (
-	signUpEndpoint  = "/api/v1/auth/sign-up"
-	refreshEndpoint = "/api/v1/auth/refresh"
-)
-
 func TestRefreshTokenRotationE2E(t *testing.T) {
 	env := SetupTestEnvironment(t)
 

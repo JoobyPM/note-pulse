@@ -19,3 +19,9 @@ var ErrListNotes = errors.New("failed to list notes")
 
 // ErrInvalidCursor is returned when cursor is invalid.
 var ErrInvalidCursor = errors.New("invalid cursor")
+
+// ErrBadRequest is returned when request parameters are invalid.
+var ErrBadRequest = errors.New("bad request")
+
+// ErrInvalidLimit is returned when limit is invalid.
+var ErrInvalidLimit = errors.New("invalid limit")

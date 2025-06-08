@@ -23,7 +23,7 @@ func TestAuthFlowE2E(t *testing.T) {
 			"password": testPassword,
 		}
 
-		resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-up", signUpPayload, nil)
+		resp, err := httpJSON("POST", env.BaseURL+signUpEndpoint, signUpPayload, nil)
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
@@ -52,7 +52,7 @@ func TestAuthFlowE2E(t *testing.T) {
 			"password": testPassword,
 		}
 
-		resp, err := httpJSON("POST", env.BaseURL+"/api/v1/auth/sign-in", signInPayload, nil)
+		resp, err := httpJSON("POST", env.BaseURL+signInEndpoint, signInPayload, nil)
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
@@ -83,7 +83,7 @@ func TestAuthFlowE2E(t *testing.T) {
 			"Authorization": "Bearer " + authToken,
 		}
 
-		resp, err := httpJSON("GET", env.BaseURL+"/api/v1/me", nil, headers)
+		resp, err := httpJSON("GET", env.BaseURL+meEndpoint, nil, headers)
 		require.NoError(t, err)
 		defer func() {
 			if err := resp.Body.Close(); err != nil {

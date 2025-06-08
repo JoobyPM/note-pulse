@@ -13,3 +13,4 @@ docs/openapi*
 !docs/openapi/.gitkeep
 
 sonar-project.properties
+.sonarlint/*

@@ -39,15 +39,14 @@ type UpdateNoteRequest struct {
 	Color *string `json:"color,omitempty" validate:"omitempty,hexcolor" example:"#FF6B6B"`
 }
 
-// TODO: Add search route
-
-// TODO: add sorting option
-// TODO: add filter option
-
 // ListNotesRequest represents a list notes request
 type ListNotesRequest struct {
-	Limit  int    `query:"limit" validate:"omitempty,min=1,max=100" example:"50"`
+	Limit  int    `query:"limit"  validate:"omitempty,min=1,max=100" example:"50"`
 	Cursor string `query:"cursor" validate:"omitempty" example:"683cdb8aa96ad71e8e075bd1"`
+	Q      string `query:"q"      validate:"omitempty,min=1,max=256" example:"meeting"`
+	Color  string `query:"color"  validate:"omitempty" example:"#FF0000"`
+	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"`
+	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"`
 }
 
 // NoteResponse represents a single note response
@@ -55,13 +54,13 @@ type NoteResponse struct {
 	Note *Note `json:"note"`
 }
 
-// TODO: [pagination] add `has_more` field to the response
-// TODO: [pagination] add `total_count` field to the response
-
 // ListNotesResponse represents a list of notes response
 type ListNotesResponse struct {
-	Notes      []*Note `json:"notes"`
-	NextCursor string  `json:"next_cursor,omitempty" example:"683cdb8aa96ad71e8e075bd2"`
+	Notes                []*Note `json:"notes"`
+	NextCursor           string  `json:"next_cursor,omitempty" example:"683cdb8aa96ad71e8e075bd2"`
+	HasMore              bool    `json:"has_more" example:"true"`
+	TotalCount           int64   `json:"total_count" example:"125"`
+	TotalCountUnfiltered int64   `json:"total_count_unfiltered" example:"200"`
 }
 
 // ErrNoteNotFound - note not found in DB
@@ -98,33 +97,49 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 // List retrieves notes for a user with pagination
 func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
 	// Set default limit if not provided
-	limit := req.Limit
-	if limit == 0 {
-		limit = 50
+	if req.Limit == 0 {
+		req.Limit = 50
 	}
 
-	// Parse cursor if provided
-	var after bson.ObjectID
+	// Validate limit - return error instead of silently clipping
+	if req.Limit > 100 {
+		return nil, ErrInvalidLimit
+	}
+
+	// Validate cursor if provided
 	if req.Cursor != "" {
-		var err error
-		after, err = bson.ObjectIDFromHex(req.Cursor)
+		_, err := bson.ObjectIDFromHex(req.Cursor)
 		if err != nil {
 			return nil, ErrInvalidCursor
 		}
 	}
 
-	notes, err := s.repo.List(ctx, userID, after, limit)
+	// Fetch limit+1 to determine if there are more results
+	fetchLimit := req.Limit + 1
+	fetchReq := req
+	fetchReq.Limit = fetchLimit
+
+	notes, totalCount, totalCountUnfiltered, err := s.repo.List(ctx, userID, fetchReq)
 	if err != nil {
 		s.log.Error(ErrListNotes.Error(), "error", err, "user_id", userID.Hex())
 		return nil, ErrListNotes
 	}
 
-	response := &ListNotesResponse{
-		Notes: notes,
+	// Determine if there are more results and trim to requested limit
+	hasMore := len(notes) > req.Limit
+	if hasMore {
+		notes = notes[:req.Limit]
 	}
 
-	// Set next cursor if we have more results
-	if len(notes) == limit {
+	response := &ListNotesResponse{
+		Notes:                notes,
+		HasMore:              hasMore,
+		TotalCount:           totalCount,
+		TotalCountUnfiltered: totalCountUnfiltered,
+	}
+
+	// Set next cursor only if we have more results
+	if hasMore && len(notes) > 0 {
 		response.NextCursor = notes[len(notes)-1].ID.Hex()
 	}
 
