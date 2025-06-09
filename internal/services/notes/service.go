@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
 	"note-pulse/internal/utils/sanitize"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service handles notes business logic
@@ -47,11 +49,11 @@ type ListNotesRequest struct {
 	Limit  int    `query:"limit"  validate:"omitempty,min=1,max=100" example:"50"`
 	Cursor string `query:"cursor" validate:"omitempty" example:"683cdb8aa96ad71e8e075bd1"`
 	Anchor string `query:"anchor" validate:"omitempty" example:"683cdb8aa96ad71e8e075bd1"`
-	Span   int    `query:"span"   validate:"omitempty,min=3,max=100" example:"40"`
+	Span   int    `query:"span"   validate:"omitempty,min=1,max=100" example:"40"`
 	Q      string `query:"q"      validate:"omitempty,min=1,max=256" example:"meeting"`
 	Color  string `query:"color"  validate:"omitempty" example:"#FF0000"`
-	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"`
-	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"` // order is case-insensitive.
+	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"` // sort is case-insensitive.
+	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"`                          // order is case-insensitive.
 }
 
 // NoteResponse represents a single note response
@@ -68,10 +70,19 @@ type ListNotesResponse struct {
 	TotalCount           int64   `json:"total_count" example:"125"`
 	TotalCountUnfiltered int64   `json:"total_count_unfiltered" example:"200"`
 	AnchorIndex          int64   `json:"anchor_index,omitempty" example:"24"`
+	WindowSize           int     `json:"window_size" example:"20"`
 }
 
 // ErrNoteNotFound - note not found in DB
 var ErrNoteNotFound = errors.New("note not found")
+
+// Direction constants for ListSide
+const (
+	DirectionBefore = "before"
+	DirectionAfter  = "after"
+	defaultLimit    = 50
+	maxLimit        = 100
+)
 
 // Create creates a new note
 func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNoteRequest) (*NoteResponse, error) {
@@ -101,18 +112,23 @@ func (s *Service) Create(ctx context.Context, userID bson.ObjectID, req CreateNo
 
 // validateListRequest validates the list request parameters
 func (s *Service) validateListRequest(req *ListNotesRequest) error {
-	// Set default limit if not provided
-	if req.Limit == 0 {
-		req.Limit = 50
-	}
-
 	// Normalize order field to lowercase for case-insensitive handling
 	if req.Order != "" {
 		req.Order = strings.ToLower(req.Order)
 	}
 
+	// Normalize sort field to lowercase for case-insensitive handling
+	if req.Sort != "" {
+		req.Sort = strings.ToLower(req.Sort)
+	}
+
 	// Validate limit - return error instead of silently clipping
-	if req.Limit > 100 {
+	if req.Limit > maxLimit {
+		return ErrInvalidLimit
+	}
+
+	// Validate span - return error instead of silently clipping
+	if req.Span > maxLimit {
 		return ErrInvalidLimit
 	}
 
@@ -133,6 +149,14 @@ func (s *Service) validateListRequest(req *ListNotesRequest) error {
 	}
 
 	return nil
+}
+
+// setListRequestDefaults sets default values for list request parameters
+func (s *Service) setListRequestDefaults(req *ListNotesRequest) {
+	// Set default limit if not provided
+	if req.Limit == 0 {
+		req.Limit = defaultLimit
+	}
 }
 
 // validateCursor validates the cursor format based on sort type
@@ -181,7 +205,8 @@ func (s *Service) generatePrevCursor(notes []*Note, sort string) string {
 	return first.ID.Hex()
 }
 
-// reverse reverses a slice of notes
+// reverse reverses a slice of notes in place and returns it for convenience.
+// Note: This function mutates the input slice.
 func (s *Service) reverse(notes []*Note) []*Note {
 	for i, j := 0, len(notes)-1; i < j; i, j = i+1, j-1 {
 		notes[i], notes[j] = notes[j], notes[i]
@@ -194,6 +219,8 @@ func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesR
 	if err := s.validateListRequest(&req); err != nil {
 		return nil, err
 	}
+
+	s.setListRequestDefaults(&req)
 
 	// If no anchor is provided, use the old behavior
 	if req.Anchor == "" {
@@ -239,81 +266,185 @@ func (s *Service) oldList(ctx context.Context, userID bson.ObjectID, req ListNot
 
 // anchorList implements the new anchor-based pagination
 func (s *Service) anchorList(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
-	// Set default span if not provided
-	winSz := req.Span
-	if winSz <= 0 || winSz > 100 {
-		winSz = req.Limit // Use existing limit as default
-		if winSz <= 0 {
-			winSz = 50
-		}
+	winSz := s.calculateWindowSize(req)
+
+	anchor, err := s.loadAndValidateAnchor(ctx, userID, req)
+	if err != nil {
+		return nil, err
 	}
 
-	// 1. Load the anchor note and verify it matches filters
+	beforeResult, afterResult, err := s.fetchSideNotes(ctx, userID, req, anchor, winSz)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.buildAnchorResponse(ctx, userID, req, anchor, beforeResult, afterResult)
+}
+
+// calculateWindowSize determines the window size for anchor pagination
+func (s *Service) calculateWindowSize(req ListNotesRequest) int {
+	if req.Span > 0 && req.Span <= maxLimit {
+		return req.Span
+	}
+
+	if req.Limit > 0 {
+		return req.Limit
+	}
+
+	return defaultLimit
+}
+
+// loadAndValidateAnchor loads the anchor note and validates it matches filters
+func (s *Service) loadAndValidateAnchor(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*Note, error) {
 	anchor, err := s.repo.FindOne(ctx, userID, req, req.Anchor)
 	if err != nil {
-		s.log.Info("anchor note not found or filtered out", "user_id", userID.Hex(), "anchor", req.Anchor)
+		s.log.Info("anchor note not found or filtered out", "user_id", userID.Hex(), "anchor_id", req.Anchor)
 		return nil, ErrNoteNotFound
 	}
+	return anchor, nil
+}
 
-	// 2. Split the window
+// sideResult holds the results from fetching notes on one side of the anchor
+type sideResult struct {
+	notes []*Note
+	full  bool
+}
+
+// fetchSideNotes fetches notes before and after the anchor in parallel
+func (s *Service) fetchSideNotes(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, winSz int) (sideResult, sideResult, error) {
 	beforeN := winSz / 2
 	afterN := winSz - beforeN - 1 // 1 slot for the anchor itself
 
-	// 3. Get notes before the anchor (parallel execution would be ideal, but sequential is simpler)
-	before, err := s.repo.ListSide(ctx, userID, req, anchor, beforeN, "before")
-	if err != nil {
-		s.log.Error("failed to get notes before anchor", "error", err, "user_id", userID.Hex())
-		return nil, ErrListNotes
+	var beforeResult, afterResult sideResult
+	g, gCtx := errgroup.WithContext(ctx)
+
+	if beforeN > 0 {
+		g.Go(func() error {
+			// pass gCtx so the Mongo query is aborted if the *other*
+			// goroutine returns an error first
+			return s.fetchSideNotesWorker(
+				gCtx, userID, req, anchor,
+				beforeN, DirectionBefore, &beforeResult)
+		})
 	}
 
-	// 4. Get notes after the anchor
-	after, err := s.repo.ListSide(ctx, userID, req, anchor, afterN, "after")
-	if err != nil {
-		s.log.Error("failed to get notes after anchor", "error", err, "user_id", userID.Hex())
-		return nil, ErrListNotes
+	if afterN > 0 {
+		g.Go(func() error {
+			return s.fetchSideNotesWorker(
+				gCtx, userID, req, anchor,
+				afterN, DirectionAfter, &afterResult)
+		})
 	}
 
-	// 5. Get anchor index for absolute positioning
+	if err := g.Wait(); err != nil {
+		s.log.Error("failed to get side notes", "error", err, "user_id", userID.Hex())
+		return sideResult{}, sideResult{}, ErrListNotes
+	}
+
+	// Ensure zero‑value slices are non‑nil for downstream logic
+	s.ensureNonNilSlices(&beforeResult, &afterResult)
+
+	return beforeResult, afterResult, nil
+}
+
+// fetchSideNotesWorker fetches notes for one side of the anchor
+func (s *Service) fetchSideNotesWorker(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, count int, direction string, result *sideResult) error {
+	notes, full, err := s.repo.ListSide(ctx, userID, req, anchor, count, direction)
+	if err != nil {
+		// Returning the error cancels gCtx --> aborts the sibling query.
+		return err
+	}
+	result.notes, result.full = notes, full
+	return nil
+}
+
+// ensureNonNilSlices ensures that note slices are non-nil for downstream logic
+func (s *Service) ensureNonNilSlices(beforeResult, afterResult *sideResult) {
+	if beforeResult.notes == nil {
+		beforeResult.notes = []*Note{}
+	}
+	if afterResult.notes == nil {
+		afterResult.notes = []*Note{}
+	}
+}
+
+// buildAnchorResponse constructs the final response for anchor-based pagination
+func (s *Service) buildAnchorResponse(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, beforeResult, afterResult sideResult) (*ListNotesResponse, error) {
+	anchorIndex := s.getAnchorIndex(ctx, userID, req, anchor)
+
+	beforeN := s.calculateWindowSize(req) / 2
+
+	reversedBefore := s.reverse(slices.Clone(beforeResult.notes))
+	notes := s.combineNotes(reversedBefore, anchor, afterResult.notes)
+
+	totalCount, totalCountUnfiltered := s.getTotalCounts(ctx, userID, req)
+
+	// when beforeN > 0 the 'full' flag already captures "more before"
+	hasMoreBefore := beforeN == 0 && anchorIndex > 0
+	response := &ListNotesResponse{
+		Notes:                notes,
+		HasMore:              hasMoreBefore || beforeResult.full || afterResult.full,
+		TotalCount:           totalCount,
+		TotalCountUnfiltered: totalCountUnfiltered,
+		WindowSize:           len(notes),
+	}
+
+	s.setCursors(response, beforeResult, afterResult, req.Sort)
+	s.setAnchorIndex(response, anchorIndex)
+
+	return response, nil
+}
+
+// getAnchorIndex gets the absolute position index of the anchor note
+func (s *Service) getAnchorIndex(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note) int64 {
 	anchorIndex, err := s.repo.GetAnchorIndex(ctx, userID, req, anchor)
 	if err != nil {
 		s.log.Error("failed to get anchor index", "error", err, "user_id", userID.Hex())
-		// Don't fail the request, just omit the index
-		anchorIndex = -1
+		return -1
 	}
+	return anchorIndex
+}
 
-	// 6. Combine results, keeping overall order stable
-	notes := append(s.reverse(before), anchor)
-	notes = append(notes, after...)
+// combineNotes combines before notes, anchor, and after notes in the correct order
+func (s *Service) combineNotes(reversedBefore []*Note, anchor *Note, afterNotes []*Note) []*Note {
+	notes := append(reversedBefore, anchor)
+	return append(notes, afterNotes...)
+}
 
-	// 7. Get total counts
+// getTotalCounts retrieves total counts, returning 0 values on error
+func (s *Service) getTotalCounts(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (int64, int64) {
 	totalCount, totalCountUnfiltered, err := s.repo.GetCounts(ctx, userID, req)
 	if err != nil {
 		s.log.Error("failed to get counts", "error", err, "user_id", userID.Hex())
-		// Don't fail the request, just use 0 counts
-		totalCount, totalCountUnfiltered = 0, 0
+		return 0, 0
+	}
+	return totalCount, totalCountUnfiltered
+}
+
+// setCursors fills Prev/Next on an AnchorResponse.
+func (s *Service) setCursors(
+	response *ListNotesResponse,
+	beforeResult sideResult, // original order: newest--> oldest
+	afterResult sideResult,
+	sort string,
+) {
+	// NEXT
+	if len(afterResult.notes) > 0 {
+		response.NextCursor = s.generateNextCursor(afterResult.notes, sort)
 	}
 
-	response := &ListNotesResponse{
-		Notes:                notes,
-		HasMore:              len(after) == afterN || len(before) == beforeN,
-		TotalCount:           totalCount,
-		TotalCountUnfiltered: totalCountUnfiltered,
+	// PREV
+	if len(beforeResult.notes) > 0 {
+		newest := beforeResult.notes[0] // beforeResult is newest-->oldest
+		response.PrevCursor = s.generatePrevCursor([]*Note{newest}, sort)
 	}
+}
 
-	// Set cursors based on the window edges
-	if len(before) > 0 {
-		response.PrevCursor = s.generatePrevCursor(before, req.Sort)
-	}
-	if len(after) > 0 {
-		response.NextCursor = s.generateNextCursor(after, req.Sort)
-	}
-
-	// Set anchor index if we got it
+// setAnchorIndex sets the anchor index in the response if valid
+func (s *Service) setAnchorIndex(response *ListNotesResponse, anchorIndex int64) {
 	if anchorIndex >= 0 {
-		response.AnchorIndex = anchorIndex
+		response.AnchorIndex = anchorIndex + 1 // 1-based indexing
 	}
-
-	return response, nil
 }
 
 // sanitizedUpdateNote creates an UpdateNote with sanitized title and body

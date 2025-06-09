@@ -15,7 +15,7 @@ type Repository interface {
 
 	// New methods for anchor-based pagination
 	FindOne(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor string) (*Note, error)
-	ListSide(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, limit int, direction string) ([]*Note, error)
+	ListSide(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, limit int, direction string) ([]*Note, bool, error)
 	GetAnchorIndex(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note) (int64, error)
 	GetCounts(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (int64, int64, error)
 }

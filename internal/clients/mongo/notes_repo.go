@@ -87,6 +87,7 @@ func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, er
 				{Key: "title", Value: 1},
 				{Key: "_id", Value: 1},
 			},
+			Options: options.Index().SetName("user_title_asc_id_asc"),
 		},
 		{
 			Keys: bson.D{
@@ -94,6 +95,7 @@ func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, er
 				{Key: "title", Value: -1},
 				{Key: "_id", Value: -1},
 			},
+			Options: options.Index().SetName("user_title_desc_id_desc"),
 		},
 		// Text search index for title and body
 		{
@@ -408,12 +410,12 @@ func (r *NotesRepo) FindOne(ctx context.Context, userID bson.ObjectID, req notes
 }
 
 // ListSide retrieves notes on one side of an anchor note
-func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req notes.ListNotesRequest, anchor *notes.Note, limit int, direction string) ([]*notes.Note, error) {
+func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req notes.ListNotesRequest, anchor *notes.Note, limit int, direction string) ([]*notes.Note, bool, error) {
 	ctx, cancel := repoCtx(ctx)
 	defer cancel()
 
 	if limit <= 0 {
-		return []*notes.Note{}, nil
+		return []*notes.Note{}, false, nil
 	}
 
 	// Clone the request and modify for side query
@@ -422,7 +424,7 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 	sideReq.Cursor = r.generateCursorFromNote(anchor, req.Sort)
 
 	// Flip order for "before" direction to get reverse chronological order
-	if direction == "before" {
+	if direction == notes.DirectionBefore {
 		if req.Order == "asc" {
 			sideReq.Order = "desc"
 		} else {
@@ -433,19 +435,19 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 	// Build filter excluding the anchor note itself
 	filter, err := r.buildListFilter(userID, sideReq)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Add cursor filter to position relative to anchor
 	if err := r.addCursorFilter(filter, sideReq); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	opts := r.buildFindOptions(sideReq, limit)
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func(ctxToClose context.Context) {
 		if cerr := cursor.Close(ctxToClose); cerr != nil {
@@ -455,10 +457,13 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 
 	var notesList []*notes.Note
 	if err := cursor.All(ctx, &notesList); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return notesList, nil
+	// Return if we got a full result set (meaning there might be more)
+	isFull := len(notesList) == limit
+
+	return notesList, isFull, nil
 }
 
 // GetAnchorIndex gets the absolute index of an anchor note in the full sorted result set
@@ -472,7 +477,17 @@ func (r *NotesRepo) GetAnchorIndex(ctx context.Context, userID bson.ObjectID, re
 	beforeFilter := r.buildBeforeFilter(userID, sortKey, order, anchor)
 	r.applyFilters(beforeFilter, req)
 
-	count, err := r.collection.CountDocuments(ctx, beforeFilter)
+	// Optional hint for large workspaces with duplicate titles
+	opts := options.Count()
+	if sortKey == "title" {
+		// Check workspace size for hint optimization
+		totalCount, err := r.collection.EstimatedDocumentCount(ctx)
+		if err == nil && totalCount > 50000 {
+			opts.SetHint(bson.D{{Key: "title", Value: 1}, {Key: "_id", Value: 1}})
+		}
+	}
+
+	count, err := r.collection.CountDocuments(ctx, beforeFilter, opts)
 	if err != nil {
 		return -1, err
 	}
