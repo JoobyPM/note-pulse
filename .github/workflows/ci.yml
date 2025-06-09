@@ -11,10 +11,10 @@ name: CI
 
 on:
   push:
-    branches: [web-ui]
-  #   tags: ["v*"]
-  # pull_request:
-  #   branches: [main]
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
 
 env:
   GOFLAGS: -buildvcs=false
@@ -30,77 +30,76 @@ env:
     echo "MONGO_INITDB_ROOT_PASSWORD=example"   >> "$GITHUB_ENV"
 
 jobs:
-  # # ───────────────────────────── tests ────────────────────────────────
-  # test:
-  #   runs-on: ubuntu-latest
+  # ───────────────────────────── tests ────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
 
-  #   # All job steps run inside the reusable builder image
-  #   container:
-  #     image: ghcr.io/joobypm/note-pulse-builder:latest
-  #     options: --user 0 # root still useful for Testcontainers / ip-tables
+    # All job steps run inside the reusable builder image
+    container:
+      image: ghcr.io/joobypm/note-pulse-builder:latest
+      options: --user 0 # root still useful for Testcontainers / ip-tables
 
-  #   # Docker-in-Docker side-car → the daemon that Testcontainers will use
-  #   services:
-  #     docker:
-  #       image: docker:dind
-  #       env:
-  #         DOCKER_TLS_CERTDIR: ""
-  #       ports:
-  #         - 2375:2375
-  #       options: >-
-  #         --privileged
-  #         --health-cmd       "docker info >/dev/null 2>&1"
-  #         --health-interval  2s
-  #         --health-timeout   30s
-  #         --health-retries   15
+    # Docker-in-Docker side-car → the daemon that Testcontainers will use
+    services:
+      docker:
+        image: docker:dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        ports:
+          - 2375:2375
+        options: >-
+          --privileged
+          --health-cmd       "docker info >/dev/null 2>&1"
+          --health-interval  2s
+          --health-timeout   30s
+          --health-retries   15
 
-  #   steps:
-  #     # -----------------------------------------------------------------
-  #     - name: Default secrets for forks / schedule
-  #       if: ${{ env.JWT_SECRET == '' }}
-  #       run: ${{ env.DEFAULTS_SET }}
+    steps:
+      # -----------------------------------------------------------------
+      - name: Default secrets for forks / schedule
+        if: ${{ env.JWT_SECRET == '' }}
+        run: ${{ env.DEFAULTS_SET }}
 
-  #     - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-  #     # -----------------------------------------------------------------
-  #     # -----------------------------------------------------------------
-  #     # Go setup with built-in module and build cache
-  #     # -----------------------------------------------------------------
-  #     - name: Setup Go
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version-file: go.mod
-  #         cache: true
+      # -----------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # Go setup with built-in module and build cache
+      # -----------------------------------------------------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
-  #     # -----------------------------------------------------------------
-  #     - name: Build server binary
-  #       run: make bin/server
+      # -----------------------------------------------------------------
+      - name: Build server binary
+        run: make bin/server
 
-  #     - name: Expose BIN_SERVER for tests
-  #       run: echo "BIN_SERVER=$(pwd)/bin/server" >> "$GITHUB_ENV"
+      - name: Expose BIN_SERVER for tests
+        run: echo "BIN_SERVER=$(pwd)/bin/server" >> "$GITHUB_ENV"
 
-  #     # -----------------------------------------------------------------
-  #     - name: Format / vet / lint / unit tests
-  #       run: make tidy format vet lint test
+      # -----------------------------------------------------------------
+      - name: Format / vet / lint / unit tests
+        run: make tidy format vet lint test
 
-  #     # -----------------------------------------------------------------
-  #     - name: End-to-end tests (Testcontainers)
-  #       run: |
-  #         # Use the DinD daemon only for the Go tests we launch here
-  #         export DOCKER_HOST=tcp://localhost:2375
+      # -----------------------------------------------------------------
+      - name: End-to-end tests (Testcontainers)
+        run: |
+          # Use the DinD daemon only for the Go tests we launch here
+          export DOCKER_HOST=tcp://localhost:2375
 
-  #         # Give the server a guaranteed 32-byte secret so config.Load() is happy
-  #         export JWT_SECRET=test-e2e-secret-with-32-plus-characters
-  #         export JWT_ALGORITHM=HS256      # explicit, though HS256 is default
-  #         export DEV_MODE=true            # relaxs other prod-only checks
+          # Give the server a guaranteed 32-byte secret so config.Load() is happy
+          export JWT_SECRET=test-e2e-secret-with-32-plus-characters
+          export JWT_ALGORITHM=HS256      # explicit, though HS256 is default
+          export DEV_MODE=true            # relaxs other prod-only checks
 
-  #         make e2e
+          make e2e
 
-  # ───────────────────────────── image build + smoke test ─────────────
   # ───────── image build + smoke test ─────────
   image-test:
     runs-on: ubuntu-latest
-    # needs: test          # keep dependency but do not include the test job here
+    needs: test          # keep dependency but do not include the test job here
 
     steps:
       - uses: actions/checkout@v4
@@ -170,7 +169,7 @@ jobs:
   # ───────── publish (on tagged releases) ─────────
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    # needs: test          # keep dependency but do not include the test job here
+    needs: test          # keep dependency but do not include the test job here
     runs-on: ubuntu-latest
 
     permissions:
