@@ -2,12 +2,15 @@
 set -euo pipefail
 
 # Build script for Note-Pulse
-# This script generates version information and builds the Go binaries
-# Used by both Makefile and Dockerfile to avoid duplication
+# Generates version information and builds Go binaries
+# Used by both Makefile and Dockerfile
 
 # Generate version info
 REV=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
-TAG=$(git describe --tags --dirty --always 2>/dev/null || echo "dev")
+
+# If VERSION is provided (e.g. from Docker ARG) use it, otherwise git-describe
+TAG=${VERSION:-$(git describe --tags --dirty --always 2>/dev/null || echo "dev")}
+
 BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Build ldflags
@@ -20,23 +23,15 @@ CGO_ENABLED="${CGO_ENABLED:-0}"
 GOOS="${GOOS:-linux}"
 GOARCH="${GOARCH:-}"
 
-echo "Target OS - $GOOS"
-echo "Targte arch - $GOARCH"
-echo "Building $TARGET -> $OUTPUT"
-echo "Version: $TAG"
-echo "Commit: $REV"
-echo "Built at: $BUILD_TIME"
+echo "Target OS      : $GOOS"
+echo "Target arch    : ${GOARCH:-native}"
+echo "Building       : $TARGET → $OUTPUT"
+echo "Version / tag  : $TAG"
+echo "Commit         : $REV"
+echo "Built at       : $BUILD_TIME"
 
-# Set CGO and cross-compilation flags if specified
-export CGO_ENABLED
-if [ -n "$GOOS" ]; then
-    export GOOS
-fi
-if [ -n "$GOARCH" ]; then
-    export GOARCH
-fi
+export CGO_ENABLED GOOS GOARCH
 
-# Build the binary
 go build -trimpath -ldflags "$LD_FLAGS" -o "$OUTPUT" "$TARGET"
 
-echo "Build completed: $OUTPUT"
+echo "✓Build completed: $OUTPUT"

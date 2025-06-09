@@ -1,44 +1,38 @@
-# Build stage
+# syntax=docker/dockerfile:1
+ARG VERSION=dev
+
+########################  builder  ##################################
 FROM ghcr.io/joobypm/note-pulse-builder:latest AS builder
 
-# Install git for version info
-RUN apk add --no-cache git bash
+ARG VERSION
+ENV VERSION=${VERSION}          # forward to build.sh
 
+RUN apk add --no-cache git bash
 WORKDIR /app
 
-# Copy go mod and sum files
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
-
-# Copy source code
 COPY . .
-
 
 RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
 
-# Build the application using shared build script
-RUN chmod +x ./scripts/build.sh && \
-    ./scripts/build.sh ./cmd/server main
-
-# Build the ping binary
+RUN chmod +x ./scripts/build.sh && ./scripts/build.sh ./cmd/server main
 RUN ./scripts/build.sh ./cmd/ping ping
 
 # Final stage - smaller distroless
 FROM gcr.io/distroless/static-debian12:nonroot
 
+ARG VERSION
+LABEL org.opencontainers.image.version=${VERSION} \
+      org.opencontainers.image.source="https://github.com/joobypm/note-pulse"
+
 WORKDIR /
 
-# Copy the binary from builder stage
 COPY --from=builder /app/main .
 COPY --from=builder /app/ping .
 
-# Use non-root user
+ENV VERSION=${VERSION}
+
 USER nonroot:nonroot
-
-# Expose port
 EXPOSE 8080
-
-# Run the binary
 ENTRYPOINT ["./main"]

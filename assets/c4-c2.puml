@@ -1,0 +1,56 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+LAYOUT_WITH_LEGEND()
+
+' actors
+Person(user, "User")
+
+' system boundary
+System_Boundary(note, "Note-Pulse server") {
+
+  Component(router,         "Fiber Router",          "HTTP routing & middleware chain")
+  Component(authHandlers,   "Auth handlers",         "/auth REST endpoints")
+  Component(notesHandlers,  "Notes handlers",        "/notes REST + WS upgrade")
+  Component(authSvc,        "Auth service",          "JWT, refresh tokens, bcrypt")
+  Component(notesSvc,       "Notes service",         "CRUD, search, pagination")
+  Component(hub,            "WebSocket hub",         "Broadcast note events")
+  Component(jwtMW,          "JWT middleware",        "Token validation")
+  Component(metricsMW,      "Metrics middleware",    "Prometheus metrics")
+  Component(repoUsers,      "Users repo",            "Mongo collection users")
+  Component(repoNotes,      "Notes repo",            "Mongo collection notes")
+  Component(repoRefresh,    "RefreshTokens repo",    "Mongo collection refresh_tokens")
+}
+
+' external systems
+ContainerDb(db, "MongoDB", "Document database")
+System_Ext(prom,  "Prometheus", "Metrics")
+System_Ext(graf, "Grafana",    "Dashboards")
+System_Ext(k6,   "k6",         "Load tests")
+
+' relationships
+Rel(user,           router,        "HTTPS requests")
+Rel(router,         jwtMW,         "checks token")
+Rel(jwtMW,          authHandlers,  "pass when /auth/*")
+Rel(jwtMW,          notesHandlers, "pass when /notes/*")
+Rel(router,         metricsMW,     "wrap")
+Rel(router,         authHandlers,  "dispatch")
+Rel(router,         notesHandlers, "dispatch")
+
+Rel(authHandlers,   authSvc,       "use")
+Rel(notesHandlers,  notesSvc,      "use")
+Rel(notesSvc,       hub,           "publish events")
+Rel(hub,            notesHandlers, "push JSON over WS")
+
+Rel(authSvc,        repoUsers,     "read/write")
+Rel(authSvc,        repoRefresh,   "read/write")
+Rel(notesSvc,       repoNotes,     "read/write")
+
+Rel(repoUsers,      db,            "CRUD")
+Rel(repoNotes,      db,            "CRUD")
+Rel(repoRefresh,    db,            "CRUD")
+
+Rel(metricsMW,      prom,          "exposes /metrics")
+Rel(prom,           graf,          "scrape & display")
+Rel(k6,             router,        "benchmark")
+
+@enduml
