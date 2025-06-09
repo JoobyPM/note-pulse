@@ -21,6 +21,7 @@ var (
 	ErrDBMsg         = "db error"
 	UpdateNoteMsg    = "notes.UpdateNote"
 	mockNote         = mock.AnythingOfType("*notes.Note")
+	mockListReq      = mock.AnythingOfType("notes.ListNotesRequest")
 )
 
 // MockNotesRepo is a mock implementation of Repository
@@ -52,6 +53,32 @@ func (m *MockNotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID
 func (m *MockNotesRepo) Delete(ctx context.Context, userID, noteID bson.ObjectID) error {
 	args := m.Called(ctx, userID, noteID)
 	return args.Error(0)
+}
+
+func (m *MockNotesRepo) FindOne(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor string) (*Note, error) {
+	args := m.Called(ctx, userID, req, anchor)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*Note), args.Error(1)
+}
+
+func (m *MockNotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note, limit int, direction string) ([]*Note, bool, error) {
+	args := m.Called(ctx, userID, req, anchor, limit, direction)
+	if args.Get(0) == nil {
+		return nil, false, args.Error(2)
+	}
+	return args.Get(0).([]*Note), args.Get(1).(bool), args.Error(2)
+}
+
+func (m *MockNotesRepo) GetAnchorIndex(ctx context.Context, userID bson.ObjectID, req ListNotesRequest, anchor *Note) (int64, error) {
+	args := m.Called(ctx, userID, req, anchor)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockNotesRepo) GetCounts(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (int64, int64, error) {
+	args := m.Called(ctx, userID, req)
+	return args.Get(0).(int64), args.Get(1).(int64), args.Error(2)
 }
 
 // MockBus is a mock implementation of Bus
@@ -132,6 +159,141 @@ func TestServiceCreate(t *testing.T) {
 			bus.AssertExpectations(t)
 		})
 	}
+}
+
+// makeNote returns a fully-populated *Note that is safe to re-use in mocks.
+func makeNote(id, userID bson.ObjectID, title, body, color string, ts time.Time) *Note {
+	return &Note{
+		ID:        id,
+		UserID:    userID,
+		Title:     title,
+		Body:      body,
+		Color:     color,
+		CreatedAt: ts,
+		UpdatedAt: ts,
+	}
+}
+
+// newServiceWithMocks wires together a Service + fresh mocks and lets the
+// caller register expectations before the test starts.
+func newServiceWithMocks(
+	t *testing.T,
+	setup func(repo *MockNotesRepo, bus *MockBus),
+) (*Service, *MockNotesRepo, *MockBus) {
+	t.Helper()
+
+	repo := new(MockNotesRepo)
+	bus := new(MockBus)
+
+	if setup != nil {
+		setup(repo, bus)
+	}
+
+	svc := NewService(repo, bus, silentLogger)
+	return svc, repo, bus
+}
+
+// TestAnchorBasedPaginationScenarios tests specific anchor-based pagination scenarios
+func TestAnchorBasedPaginationScenarios(t *testing.T) {
+	userID := bson.NewObjectID()
+	now := time.Now().UTC()
+
+	/* ------------------------------------------------------------------ */
+	t.Run("duplicate-title round-trip", func(t *testing.T) {
+		id1, id2 := bson.NewObjectID(), bson.NewObjectID()
+		foo1 := makeNote(id1, userID, "Foo", "Body 1", "", now)
+		foo2 := makeNote(id2, userID, "Foo", "Body 2", "", now.Add(time.Minute))
+
+		svc, repo, _ := newServiceWithMocks(t, func(r *MockNotesRepo, _ *MockBus) {
+			anchorCursor := EncodeCompositeCursor(foo1.Title, foo1.ID)
+
+			// ① Anchor lookup
+			r.On("FindOne", mock.Anything, userID, mockListReq, anchorCursor).
+				Return(foo1, nil).Once()
+
+			// ② Window sides
+			r.On("ListSide", mock.Anything, userID, mockListReq, foo1, 1, DirectionBefore).
+				Return([]*Note{}, false, nil).Once()
+			r.On("ListSide", mock.Anything, userID, mockListReq, foo1, 1, DirectionAfter).
+				Return([]*Note{foo2}, false, nil).Once()
+
+			// ③ Meta
+			r.On("GetAnchorIndex", mock.Anything, userID, mockListReq, foo1).
+				Return(int64(0), nil).Once()
+			r.On("GetCounts", mock.Anything, userID, mockListReq).
+				Return(int64(2), int64(2), nil).Once()
+		})
+
+		resp, err := svc.List(context.Background(), userID, ListNotesRequest{
+			Anchor: EncodeCompositeCursor(foo1.Title, foo1.ID),
+			Span:   3,
+			Sort:   "title",
+			Order:  "asc",
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, []*Note{foo1, foo2}, resp.Notes)
+		repo.AssertExpectations(t)
+	})
+
+	/* ------------------------------------------------------------------ */
+	t.Run("filter drift keeps anchor window consistent", func(t *testing.T) {
+		anchorID, neighbourID := bson.NewObjectID(), bson.NewObjectID()
+
+		anchor := makeNote(anchorID, userID, "Red Note", "This is red", testColor, now)
+		neighbour := makeNote(neighbourID, userID, "Neighbour", "This was red", testColor, now.Add(-time.Hour))
+
+		svc, repo, _ := newServiceWithMocks(t, func(r *MockNotesRepo, _ *MockBus) {
+			// Anchor lookup with colour filter
+			r.On("FindOne", mock.Anything, userID,
+				mock.MatchedBy(func(req ListNotesRequest) bool { return req.Color == testColor }),
+				anchorID.Hex()).Return(anchor, nil).Once()
+
+			// Sides
+			r.On("ListSide", mock.Anything, userID, mockListReq, anchor, 1, DirectionBefore).
+				Return([]*Note{neighbour}, false, nil).Once()
+			r.On("ListSide", mock.Anything, userID, mockListReq, anchor, 1, DirectionAfter).
+				Return([]*Note{}, false, nil).Once()
+
+			// Meta
+			r.On("GetAnchorIndex", mock.Anything, userID, mockListReq, anchor).
+				Return(int64(1), nil).Once()
+			r.On("GetCounts", mock.Anything, userID, mockListReq).
+				Return(int64(2), int64(3), nil).Once()
+		})
+
+		resp, err := svc.List(context.Background(), userID, ListNotesRequest{
+			Anchor: anchorID.Hex(),
+			Span:   3,
+			Color:  testColor,
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, []*Note{neighbour, anchor}, resp.Notes)
+		assert.Equal(t, int64(2), resp.TotalCount) // snapshot of the moment of query
+		repo.AssertExpectations(t)
+	})
+
+	/* ------------------------------------------------------------------ */
+	t.Run("anchor filtered-out returns not-found", func(t *testing.T) {
+		anchorID := bson.NewObjectID()
+
+		svc, repo, _ := newServiceWithMocks(t, func(r *MockNotesRepo, _ *MockBus) {
+			r.On("FindOne", mock.Anything, userID,
+				mock.MatchedBy(func(req ListNotesRequest) bool { return req.Color == testColor }),
+				anchorID.Hex()).Return(nil, ErrNoteNotFound).Once()
+		})
+
+		resp, err := svc.List(context.Background(), userID, ListNotesRequest{
+			Anchor: anchorID.Hex(),
+			Span:   3,
+			Color:  testColor,
+		})
+
+		assert.ErrorIs(t, err, ErrNoteNotFound)
+		assert.Nil(t, resp)
+		repo.AssertExpectations(t)
+	})
 }
 
 func TestServiceList(t *testing.T) {
@@ -312,6 +474,64 @@ func TestServiceList(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  ErrListNotes.Error(),
+		},
+		{
+			name: "anchor and cursor cannot be used together",
+			req: ListNotesRequest{
+				Anchor: noteID1.Hex(),
+				Cursor: noteID2.Hex(),
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "successful anchor-based pagination",
+			req: ListNotesRequest{
+				Anchor: noteID1.Hex(),
+				Span:   3,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				anchorNote := &Note{
+					ID:        noteID1,
+					UserID:    userID,
+					Title:     "Anchor Note",
+					Body:      "Anchor Body",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+
+				beforeNotes := []*Note{mockNotes[0]}
+				afterNotes := []*Note{mockNotes[1]}
+
+				repo.On("FindOne", mock.Anything, userID, mockListReq, noteID1.Hex()).Return(anchorNote, nil)
+				repo.On("ListSide", mock.Anything, userID, mockListReq, anchorNote, 1, DirectionBefore).Return(beforeNotes, false, nil)
+				repo.On("ListSide", mock.Anything, userID, mockListReq, anchorNote, 1, DirectionAfter).Return(afterNotes, false, nil)
+				repo.On("GetAnchorIndex", mock.Anything, userID, mockListReq, anchorNote).Return(int64(5), nil)
+				repo.On("GetCounts", mock.Anything, userID, mockListReq).Return(int64(10), int64(15), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 3)                        // before + anchor + after
+				assert.Equal(t, "Anchor Note", resp.Notes[1].Title) // Anchor should be in the middle
+				assert.Equal(t, int64(6), resp.AnchorIndex)         // 1-based indexing: 5 + 1
+				assert.Equal(t, int64(10), resp.TotalCount)
+				assert.Equal(t, int64(15), resp.TotalCountUnfiltered)
+			},
+		},
+		{
+			name: "anchor not found",
+			req: ListNotesRequest{
+				Anchor: noteID1.Hex(),
+				Span:   3,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				repo.On("FindOne", mock.Anything, userID, mockListReq, noteID1.Hex()).Return(nil, ErrNoteNotFound)
+			},
+			wantErr: true,
+			errMsg:  ErrNoteNotFound.Error(),
 		},
 	}
 
@@ -699,3 +919,7 @@ func TestServiceHTMLSanitization(t *testing.T) {
 		})
 	}
 }
+
+// The pagination bug fixes are validated by E2E tests since they require
+// complex integration behavior that's difficult to mock properly.
+// See test/pagination_bugs_e2e_test.go for comprehensive validation.
