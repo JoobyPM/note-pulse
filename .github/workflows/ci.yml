@@ -12,6 +12,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -28,8 +29,8 @@ env:
     echo "JWT_SECRET=$(openssl rand -hex 24)"   >> "$GITHUB_ENV"
     echo "MONGO_INITDB_ROOT_PASSWORD=example"   >> "$GITHUB_ENV"
 
-# ───────────────────────────── tests ────────────────────────────────
 jobs:
+  # ───────────────────────────── tests ────────────────────────────────
   test:
     runs-on: ubuntu-latest
 
@@ -94,3 +95,60 @@ jobs:
           export DEV_MODE=true            # relaxs other prod-only checks
 
           make e2e
+
+  # ───────────────────────────── publish ──────────────────────────────
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # (OIDC for other registries – optional)
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/note-pulse
+
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # tags required for git-describe / meta
+
+      - name: Set up QEMU (cross-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Gather tags + labels from the git tag being built
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}   # 1.2.3
+            type=semver,pattern={{major}}.{{minor}}                        # 1.2
+            type=sha                                                       # sha-abcdef
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build & push (multi-arch)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}   # pass the git tag into Docker

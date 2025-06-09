@@ -1,0 +1,37 @@
+# EditorConfig helps maintain consistent coding styles between different editors and IDEs
+# https://editorconfig.org
+
+# Top-most EditorConfig file
+root = true
+
+# Global settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+# Configurações específicas para arquivos Go
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# JavaScript files
+[*.js]
+indent_style = space
+indent_size = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false
+
+# Shell scripts
+[*.sh]
+indent_style = tab
+indent_size = 4
+
+# Makefiles
+[Makefile]
+indent_style = tab
+indent_size = 4
