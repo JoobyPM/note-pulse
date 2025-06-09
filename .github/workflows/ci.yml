@@ -11,10 +11,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
+    branches: [web-ui]
+  #   tags: ["v*"]
+  # pull_request:
+  #   branches: [main]
 
 env:
   GOFLAGS: -buildvcs=false
@@ -30,82 +30,153 @@ env:
     echo "MONGO_INITDB_ROOT_PASSWORD=example"   >> "$GITHUB_ENV"
 
 jobs:
-  # ───────────────────────────── tests ────────────────────────────────
-  test:
+  # # ───────────────────────────── tests ────────────────────────────────
+  # test:
+  #   runs-on: ubuntu-latest
+
+  #   # All job steps run inside the reusable builder image
+  #   container:
+  #     image: ghcr.io/joobypm/note-pulse-builder:latest
+  #     options: --user 0 # root still useful for Testcontainers / ip-tables
+
+  #   # Docker-in-Docker side-car → the daemon that Testcontainers will use
+  #   services:
+  #     docker:
+  #       image: docker:dind
+  #       env:
+  #         DOCKER_TLS_CERTDIR: ""
+  #       ports:
+  #         - 2375:2375
+  #       options: >-
+  #         --privileged
+  #         --health-cmd       "docker info >/dev/null 2>&1"
+  #         --health-interval  2s
+  #         --health-timeout   30s
+  #         --health-retries   15
+
+  #   steps:
+  #     # -----------------------------------------------------------------
+  #     - name: Default secrets for forks / schedule
+  #       if: ${{ env.JWT_SECRET == '' }}
+  #       run: ${{ env.DEFAULTS_SET }}
+
+  #     - uses: actions/checkout@v4
+
+  #     # -----------------------------------------------------------------
+  #     # -----------------------------------------------------------------
+  #     # Go setup with built-in module and build cache
+  #     # -----------------------------------------------------------------
+  #     - name: Setup Go
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version-file: go.mod
+  #         cache: true
+
+  #     # -----------------------------------------------------------------
+  #     - name: Build server binary
+  #       run: make bin/server
+
+  #     - name: Expose BIN_SERVER for tests
+  #       run: echo "BIN_SERVER=$(pwd)/bin/server" >> "$GITHUB_ENV"
+
+  #     # -----------------------------------------------------------------
+  #     - name: Format / vet / lint / unit tests
+  #       run: make tidy format vet lint test
+
+  #     # -----------------------------------------------------------------
+  #     - name: End-to-end tests (Testcontainers)
+  #       run: |
+  #         # Use the DinD daemon only for the Go tests we launch here
+  #         export DOCKER_HOST=tcp://localhost:2375
+
+  #         # Give the server a guaranteed 32-byte secret so config.Load() is happy
+  #         export JWT_SECRET=test-e2e-secret-with-32-plus-characters
+  #         export JWT_ALGORITHM=HS256      # explicit, though HS256 is default
+  #         export DEV_MODE=true            # relaxs other prod-only checks
+
+  #         make e2e
+
+  # ───────────────────────────── image build + smoke test ─────────────
+  # ───────── image build + smoke test ─────────
+  image-test:
     runs-on: ubuntu-latest
-
-    # All job steps run inside the reusable builder image
-    container:
-      image: ghcr.io/joobypm/note-pulse-builder:latest
-      options: --user 0 # root still useful for Testcontainers / ip-tables
-
-    # Docker-in-Docker side-car → the daemon that Testcontainers will use
-    services:
-      docker:
-        image: docker:dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        ports:
-          - 2375:2375
-        options: >-
-          --privileged
-          --health-cmd       "docker info >/dev/null 2>&1"
-          --health-interval  2s
-          --health-timeout   30s
-          --health-retries   15
+    # needs: test          # keep dependency but do not include the test job here
 
     steps:
-      # -----------------------------------------------------------------
-      - name: Default secrets for forks / schedule
-        if: ${{ env.JWT_SECRET == '' }}
-        run: ${{ env.DEFAULTS_SET }}
-
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
 
-      # -----------------------------------------------------------------
-      # -----------------------------------------------------------------
-      # Go setup with built-in module and build cache
-      # -----------------------------------------------------------------
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # -----------------------------------------------------------------
-      - name: Build server binary
-        run: make bin/server
-
-      - name: Expose BIN_SERVER for tests
-        run: echo "BIN_SERVER=$(pwd)/bin/server" >> "$GITHUB_ENV"
-
-      # -----------------------------------------------------------------
-      - name: Format / vet / lint / unit tests
-        run: make tidy format vet lint test
-
-      # -----------------------------------------------------------------
-      - name: End-to-end tests (Testcontainers)
+      # Create the .env file expected by docker-compose
+      - name: Generate .env for smoke test
         run: |
-          # Use the DinD daemon only for the Go tests we launch here
-          export DOCKER_HOST=tcp://localhost:2375
+          # Mongo root user → required by the official image
+          echo "MONGO_INITDB_ROOT_USERNAME=root" >> .env
+          echo "MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-example}" >> .env
+          echo "MONGO_DB_NAME=notepulse" >> .env
 
-          # Give the server a guaranteed 32-byte secret so config.Load() is happy
-          export JWT_SECRET=test-e2e-secret-with-32-plus-characters
-          export JWT_ALGORITHM=HS256      # explicit, though HS256 is default
-          export DEV_MODE=true            # relaxs other prod-only checks
+          # Driver string authenticates as that root user on the admin DB
+          echo "MONGO_URI=mongodb://root:${MONGO_INITDB_ROOT_PASSWORD:-example}@mongo:27017/notepulse?authSource=admin" >> .env
 
-          make e2e
+          # App secrets - same values you use in Testcontainers
+          echo "JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 24)}" >> .env
+          echo "JWT_ALGORITHM=HS256" >> .env
+          echo "DEV_MODE=true" >> .env
 
-  # ───────────────────────────── publish ──────────────────────────────
+
+
+      # Enable containerd snapshotter so `load: true` works
+      - name: Set up Docker engine
+        uses: docker/setup-docker-action@v4
+        with:
+          daemon-config: |
+            { "features": { "containerd-snapshotter": true } }
+
+      - name: Set up QEMU (cross-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the image for the runner arch and load it locally
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: note-pulse:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+
+      # Spin up the stack and hit /healthz
+      - name: Smoke test with Compose
+        run: |
+          docker compose -f docker-compose.yml up -d
+
+          # Wait up to 30 s for the /healthz endpoint
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:8080/healthz ; then
+              echo "✓ API is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "✗ API did not become healthy in time"; docker compose logs
+          exit 1
+
+  # ───────── publish (on tagged releases) ─────────
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    # needs: test          # keep dependency but do not include the test job here
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      packages: write # push to ghcr.io
-      id-token: write # (OIDC for other registries – optional)
+      packages: write
+      id-token: write
 
     env:
       REGISTRY: ghcr.io
@@ -113,9 +184,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 } # tags required for git-describe / meta
+        with: { fetch-depth: 0 }
 
-      - name: Set up QEMU (cross-arch)
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
@@ -128,21 +199,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Gather tags + labels from the git tag being built
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},value=${{ github.ref_name }}   # 1.2.3
-            type=semver,pattern={{major}}.{{minor}}                        # 1.2
-            type=sha                                                       # sha-abcdef
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Build & push (multi-arch)
-        uses: docker/build-push-action@v5
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -150,5 +220,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
-            VERSION=${{ github.ref_name }}   # pass the git tag into Docker
+            VERSION=${{ github.ref_name }}

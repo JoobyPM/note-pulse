@@ -74,6 +74,11 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 
 	app.Get("/docs/*", swagger.HandlerDefault)
 
+	app.Static("/", "./web-ui", fiber.Static{
+		Browse: false,
+		Index:  "index.html",
+	})
+
 	var v1 fiber.Router
 	if cfg.RequestLoggingEnabled {
 		v1 = app.Group("/api/v1", fiberlogger.New())
