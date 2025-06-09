@@ -49,6 +49,7 @@ LABEL org.opencontainers.image.version=${VERSION} \
 
 WORKDIR /
 
+COPY --from=builder /app/web-ui/ /web-ui/
 COPY --from=builder /app/main .
 COPY --from=builder /app/ping .
 
