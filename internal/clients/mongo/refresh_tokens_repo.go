@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,13 @@ import (
 	"note-pulse/internal/services/auth"
 )
 
+// refreshTokenOpTimeout is the timeout for refresh token index operations (longer than regular ops)
+const refreshTokenOpTimeout = 10 * time.Second
+const refreshTokenTTL = 3600 // 1 hour
+
+// ExistsFalse is a reusable shortcut for {$exists:false}.
+var ExistsFalse = bson.M{"$exists": false}
+
 // safeLog safely logs using the logger if it's available, otherwise uses default logger
 func safeLog() *slog.Logger {
 	if l := logger.L(); l != nil {
@@ -24,16 +32,13 @@ func safeLog() *slog.Logger {
 	return slog.Default()
 }
 
-// refreshTokenOpTimeout is the timeout for refresh token index operations (longer than regular ops)
-const refreshTokenOpTimeout = 10 * time.Second
-
 // RefreshTokensRepo manages refresh token operations in MongoDB
 type RefreshTokensRepo struct {
 	collection *mongo.Collection
 }
 
 // NewRefreshTokensRepo creates a new RefreshTokensRepo instance
-func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) *RefreshTokensRepo {
+func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) (*RefreshTokensRepo, error) {
 	collection := db.Collection("refresh_tokens")
 
 	indexes := []mongo.IndexModel{
@@ -42,11 +47,11 @@ func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) *Refres
 			Keys:    bson.D{{Key: "expires_at", Value: 1}},
 			Options: options.Index().SetExpireAfterSeconds(0),
 		},
-		// TTL index on revoked_at - removes revoked tokens after 1 hour grace period
+		// TTL index on revoked_at - removes revoked tokens after grace period (refreshTokenTTL)
 		// This gives ongoing requests time to finish while keeping working set small
 		{
 			Keys:    bson.D{{Key: "revoked_at", Value: 1}},
-			Options: options.Index().SetExpireAfterSeconds(3600),
+			Options: options.Index().SetExpireAfterSeconds(refreshTokenTTL),
 		},
 		// Fast lookup index - unique on user_id + lookup_hash
 		{
@@ -60,12 +65,12 @@ func NewRefreshTokensRepo(parentCtx context.Context, db *mongo.Database) *Refres
 
 	if _, err := collection.Indexes().CreateMany(ctx, indexes); err != nil {
 		// We don't panic as indexes might already exist
-		safeLog().Error("failed to create refresh_tokens indexes", "error", err)
+		return nil, fmt.Errorf("failed to create refresh_tokens indexes: %w", err)
 	}
 
 	return &RefreshTokensRepo{
 		collection: collection,
-	}
+	}, nil
 }
 
 // Create creates a new refresh token record
@@ -90,7 +95,7 @@ func (r *RefreshTokensRepo) Create(ctx context.Context, userID bson.ObjectID, ra
 			return nil
 		}
 		safeLog().Error("failed to create refresh token", "error", err, "user_id", userID.Hex())
-		return err
+		return fmt.Errorf("failed to create refresh token: %w", err)
 	}
 
 	safeLog().Debug("refresh token created successfully", "user_id", userID.Hex(), "expires_at", expiresAt)
@@ -129,7 +134,7 @@ func (r *RefreshTokensRepo) FindActive(ctx context.Context, rawToken string) (*a
 
 	if !errors.Is(err, mongo.ErrNoDocuments) {
 		safeLog().Error("failed to query refresh token via lookup_hash", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to query refresh token via lookup_hash: %w", err)
 	}
 
 	safeLog().Debug("no active refresh token found")
@@ -153,7 +158,7 @@ func (r *RefreshTokensRepo) Revoke(ctx context.Context, id bson.ObjectID) error 
 	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		safeLog().Error("failed to revoke refresh token", "error", err, "token_id", id.Hex())
-		return err
+		return fmt.Errorf("failed to revoke refresh token: %w", err)
 	}
 
 	if result.MatchedCount == 0 {
@@ -181,7 +186,7 @@ func (r *RefreshTokensRepo) RevokeAllForUser(ctx context.Context, userID bson.Ob
 	result, err := r.collection.UpdateMany(ctx, filter, update)
 	if err != nil {
 		safeLog().Error("failed to revoke all refresh tokens for user", "error", err, "user_id", userID.Hex())
-		return err
+		return fmt.Errorf("failed to revoke all refresh tokens for user: %w", err)
 	}
 
 	safeLog().Debug("revoked all refresh tokens for user", "user_id", userID.Hex(), "revoked_count", result.ModifiedCount)

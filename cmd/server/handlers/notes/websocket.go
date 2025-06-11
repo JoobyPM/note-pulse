@@ -335,7 +335,7 @@ func (h *WebSocketHandlers) validateJWT(tokenString string) (bson.ObjectID, stri
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
-		return bson.ObjectID{}, "", fmt.Errorf("invalid user_id: %v", err)
+		return bson.ObjectID{}, "", fmt.Errorf("invalid user_id: %w", err)
 	}
 
 	return userID, userEmail, nil

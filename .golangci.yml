@@ -16,8 +16,8 @@ linters:
     - containedctx
     - fatcontext
     - durationcheck
-    - staticcheck        # good to call it out explicitly
+    - staticcheck
     - govet
     - errcheck
-    # - errorlint
+    - errorlint
     # - wrapcheck

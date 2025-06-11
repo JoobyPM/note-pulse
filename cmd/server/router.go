@@ -100,8 +100,16 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 
 	authGrp := v1.Group("/auth")
 
-	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
+	usersRepo, newUsersRepoErr := mongo.NewUsersRepo(ctx, mongo.DB())
+	if newUsersRepoErr != nil {
+		logger.L().Error("failed to create users repository", "error", newUsersRepoErr)
+		panic(newUsersRepoErr)
+	}
+	refreshTokensRepo, newRefreshTokensRepoErr := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
+	if newRefreshTokensRepoErr != nil {
+		logger.L().Error("failed to create refresh tokens repository", "error", newRefreshTokensRepoErr)
+		panic(newRefreshTokensRepoErr)
+	}
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := auth.NewHandlers(authSvc, v)
 

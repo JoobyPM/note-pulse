@@ -25,7 +25,8 @@ const (
 func setupRefreshTokensRepo(t *testing.T) (context.Context, *RefreshTokensRepo, *mongo.Database, func()) {
 	_, db, cleanup := setupTestDB(t)
 	ctx := context.Background()
-	repo := NewRefreshTokensRepo(ctx, db)
+	repo, err := NewRefreshTokensRepo(ctx, db)
+	require.NoError(t, err)
 	return ctx, repo, db, cleanup
 }
 
@@ -180,7 +181,8 @@ func TestRefreshTokensRepoCreateDuplicate(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	repo := NewRefreshTokensRepo(ctx, db)
+	repo, err := NewRefreshTokensRepo(ctx, db)
+	require.NoError(t, err)
 
 	userID := bson.NewObjectID()
 	rawToken := "same-token-for-both-goroutines"

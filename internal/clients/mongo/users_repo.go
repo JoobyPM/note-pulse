@@ -3,7 +3,9 @@ package mongo
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -17,7 +19,7 @@ type UsersRepo struct {
 }
 
 // NewUsersRepo creates a new users repository
-func NewUsersRepo(parentCtx context.Context, db *mongo.Database) *UsersRepo {
+func NewUsersRepo(parentCtx context.Context, db *mongo.Database) (*UsersRepo, error) {
 	collection := db.Collection("users")
 
 	indexModel := mongo.IndexModel{
@@ -28,12 +30,19 @@ func NewUsersRepo(parentCtx context.Context, db *mongo.Database) *UsersRepo {
 	ctx, cancel := context.WithTimeout(parentCtx, OpTimeout)
 	defer cancel()
 
-	// Ignore error if index already exists
-	_, _ = collection.Indexes().CreateOne(ctx, indexModel)
+	if _, err := collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+		// Duplicate index definition is fine - ignore it.
+		if mongo.IsDuplicateKeyError(err) {
+			logger.L().Debug("users index already exists")
+		} else {
+			// Anything else is unexpected -> bubble up so that Init() can fail fast.
+			return nil, fmt.Errorf("create users index: %w", err)
+		}
+	}
 
 	return &UsersRepo{
 		collection: collection,
-	}
+	}, nil
 }
 
 // Create creates a new user in the database
@@ -46,7 +55,7 @@ func (r *UsersRepo) Create(ctx context.Context, user *auth.User) error {
 		if mongo.IsDuplicateKeyError(err) {
 			return auth.ErrDuplicate
 		}
-		return err
+		return fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	return nil
@@ -63,7 +72,7 @@ func (r *UsersRepo) FindByEmail(ctx context.Context, email string) (*auth.User, 
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, auth.ErrUserNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to find user by email: %w", err)
 	}
 
 	return &user, nil
@@ -77,7 +86,7 @@ func (r *UsersRepo) FindByID(ctx context.Context, id bson.ObjectID) (*auth.User,
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, auth.ErrUserNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to find user by ID: %w", err)
 	}
 	return &user, nil
 }
