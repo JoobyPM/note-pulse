@@ -54,7 +54,9 @@ type ListNotesRequest struct {
 	Color  string `query:"color"  validate:"omitempty" example:"#FF0000"`
 	Sort   string `query:"sort"   validate:"omitempty,oneof=created_at updated_at title" example:"created_at"` // sort is case-insensitive.
 	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"`                          // order is case-insensitive.
-	Offset *int   `query:"offset" json:"offset,omitempty" validate:"omitempty,min=0,max=1000000" example:"300"`
+	// nil   parameter was absent
+	// 0..N  parameter was supplied
+	Offset *int `query:"offset" json:"offset,omitempty" validate:"omitempty,min=0,max=10000" example:"300"`
 }
 
 // NoteResponse represents a single note response
@@ -79,13 +81,16 @@ type ListNotesResponse struct {
 // ErrNoteNotFound - note not found in DB
 var ErrNoteNotFound = errors.New("note not found")
 
+const (
+	defaultLimit = 50
+	maxLimit     = 100
+	maxOffset    = 10_000
+)
+
 // Direction constants for ListSide
 const (
 	DirectionBefore = "before"
 	DirectionAfter  = "after"
-	defaultLimit    = 50
-	maxLimit        = 100
-	maxOffset       = 1_000_000
 )
 
 // Create creates a new note
@@ -143,7 +148,7 @@ func (s *Service) validateListRequest(req *ListNotesRequest) error {
 	}
 
 	// Validate that offset cannot be used with cursor or anchor
-	if req.Offset != nil && *req.Offset > 0 && (req.Cursor != "" || req.Anchor != "") {
+	if req.Offset != nil && (req.Cursor != "" || req.Anchor != "") {
 		s.log.Warn("offset cannot be used with cursor or anchor", "offset", *req.Offset, "cursor", req.Cursor, "anchor", req.Anchor)
 		return ErrBadRequest
 	}
@@ -238,8 +243,8 @@ func (s *Service) List(ctx context.Context, userID bson.ObjectID, req ListNotesR
 
 	s.setListRequestDefaults(&req)
 
-	// If offset is provided (>= 0) and no cursor/anchor, use offset-based pagination
-	if req.Offset != nil && *req.Offset >= 0 && req.Cursor == "" && req.Anchor == "" {
+	// If offset is provided (not nil) and no cursor/anchor, use offset-based pagination
+	if req.Offset != nil && req.Cursor == "" && req.Anchor == "" {
 		return s.offsetList(ctx, userID, req)
 	}
 
@@ -258,7 +263,7 @@ func (s *Service) oldList(ctx context.Context, userID bson.ObjectID, req ListNot
 	fetchReq := req
 	fetchReq.Limit = req.Limit + 1
 
-	notes, totalCount, totalCountUnfiltered, err := s.repo.List(ctx, userID, fetchReq)
+	notes, totalCount, totalCountUnfiltered, err := s.repo.List(ctx, userID, fetchReq, -1)
 	if err != nil {
 		s.log.Error(ErrListNotes.Error(), "error", err, "user_id", userID.Hex())
 		return nil, ErrListNotes
@@ -287,6 +292,8 @@ func (s *Service) oldList(ctx context.Context, userID bson.ObjectID, req ListNot
 
 // offsetList implements offset-based pagination
 func (s *Service) offsetList(ctx context.Context, userID bson.ObjectID, req ListNotesRequest) (*ListNotesResponse, error) {
+	offset := *req.Offset // safe: caller ensured non-nil
+
 	// Get total counts first for validation and total_pages calculation
 	totalCount, totalCountUnfiltered, err := s.repo.GetCounts(ctx, userID, req)
 	if err != nil {
@@ -295,13 +302,13 @@ func (s *Service) offsetList(ctx context.Context, userID bson.ObjectID, req List
 	}
 
 	// Return 416 if offset is beyond total count
-	if int64(*req.Offset) >= totalCount {
-		s.log.Info("offset beyond total count", "offset", *req.Offset, "total_count", totalCount)
+	if int64(offset) >= totalCount {
+		s.log.Info("offset beyond total count", "offset", offset, "total_count", totalCount)
 		return nil, ErrOffsetBeyondTotal
 	}
 
 	// Optimize window overflow: avoid over-asking when near the end
-	remaining := totalCount - int64(*req.Offset)
+	remaining := totalCount - int64(offset)
 	fetchLimit := req.Limit + 1
 	if remaining < int64(fetchLimit) {
 		fetchLimit = int(remaining)
@@ -310,7 +317,12 @@ func (s *Service) offsetList(ctx context.Context, userID bson.ObjectID, req List
 	fetchReq := req
 	fetchReq.Limit = fetchLimit
 
-	notes, _, _, err := s.repo.ListWithSkip(ctx, userID, fetchReq, *req.Offset)
+	// make Offset pointer independent of the caller's struct (long‑lived copy)
+	offsetCopy := new(int)
+	*offsetCopy = offset
+	fetchReq.Offset = offsetCopy
+
+	notes, _, _, err := s.repo.List(ctx, userID, fetchReq, offset)
 	if err != nil {
 		s.log.Error(ErrListNotes.Error(), "error", err, "user_id", userID.Hex())
 		return nil, ErrListNotes
@@ -332,7 +344,7 @@ func (s *Service) offsetList(ctx context.Context, userID bson.ObjectID, req List
 		TotalCount:           totalCount,
 		TotalCountUnfiltered: totalCountUnfiltered,
 		WindowSize:           len(notes),
-		Offset:               *req.Offset, // Zero-based offset of first result
+		Offset:               offset,
 		TotalPages:           totalPages,
 	}
 

@@ -141,54 +141,25 @@ func (r *NotesRepo) Create(ctx context.Context, note *notes.Note) error {
 }
 
 // List retrieves notes for a user with filtering, search, sorting, and cursor-based pagination
-func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.ListNotesRequest) ([]*notes.Note, int64, int64, error) {
+func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.ListNotesRequest, offset int) ([]*notes.Note, int64, int64, error) {
 	ctx, cancel := repoCtx(ctx)
 	defer cancel()
 
-	filter, err := r.buildListFilter(userID, req)
+	// Use cursor filter for cursor-based pagination, or basic filter for offset-based
+	var filter bson.M
+	var err error
+	if offset >= 0 {
+		// Offset-based pagination: no cursor filters
+		filter, err = r.buildBasicListFilter(userID, req)
+	} else {
+		// Cursor-based pagination: include cursor filters
+		filter, err = r.buildListFilter(userID, req)
+	}
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
-	opts := r.buildFindOptions(req, req.Limit)
-
-	// Check if any actual filters are applied (excluding pagination cursor)
-	hasFilters := req.Color != "" || req.Q != ""
-
-	totalCount, totalCountUnfiltered, err := r.calcCounts(ctx, userID, filter, hasFilters)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	cursor, err := r.collection.Find(ctx, filter, opts)
-	if err != nil {
-		return nil, totalCount, totalCountUnfiltered, err
-	}
-	defer func(ctxToClose context.Context) {
-		if cerr := cursor.Close(ctxToClose); cerr != nil {
-			logger.L().Error("failed to close cursor", "error", cerr)
-		}
-	}(ctx)
-
-	var notesList []*notes.Note
-	if err := cursor.All(ctx, &notesList); err != nil {
-		return nil, totalCount, totalCountUnfiltered, err
-	}
-
-	return notesList, totalCount, totalCountUnfiltered, nil
-}
-
-// ListWithSkip retrieves notes for a user with offset-based pagination
-func (r *NotesRepo) ListWithSkip(ctx context.Context, userID bson.ObjectID, req notes.ListNotesRequest, skip int) ([]*notes.Note, int64, int64, error) {
-	ctx, cancel := repoCtx(ctx)
-	defer cancel()
-
-	filter, err := r.buildListFilterForOffset(userID, req)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	opts := r.buildFindOptionsWithSkip(req, req.Limit, skip)
+	opts := r.buildFindOptions(req, req.Limit, offset)
 
 	// Check if any actual filters are applied (excluding pagination)
 	hasFilters := req.Color != "" || req.Q != ""
@@ -216,8 +187,8 @@ func (r *NotesRepo) ListWithSkip(ctx context.Context, userID bson.ObjectID, req 
 	return notesList, totalCount, totalCountUnfiltered, nil
 }
 
-// buildListFilterForOffset constructs the MongoDB filter for offset-based queries (no cursor filters)
-func (r *NotesRepo) buildListFilterForOffset(userID bson.ObjectID, req notes.ListNotesRequest) (bson.M, error) {
+// buildBasicListFilter constructs the MongoDB filter for offset-based queries (no cursor filters)
+func (r *NotesRepo) buildBasicListFilter(userID bson.ObjectID, req notes.ListNotesRequest) (bson.M, error) {
 	filter := bson.M{"user_id": userID}
 
 	if req.Color != "" {
@@ -330,7 +301,7 @@ func (r *NotesRepo) addTitleCursorFilter(filter bson.M, cursorStr, order string)
 }
 
 // buildFindOptions constructs the MongoDB find options for sorting and pagination
-func (r *NotesRepo) buildFindOptions(req notes.ListNotesRequest, limit int) *options.FindOptionsBuilder {
+func (r *NotesRepo) buildFindOptions(req notes.ListNotesRequest, limit int, offset int) *options.FindOptionsBuilder {
 	sortKey := "created_at"
 	if req.Sort != "" {
 		switch req.Sort {
@@ -346,32 +317,16 @@ func (r *NotesRepo) buildFindOptions(req notes.ListNotesRequest, limit int) *opt
 		dir = 1
 	}
 
-	return options.Find().
+	opts := options.Find().
 		SetSort(bson.D{{Key: sortKey, Value: dir}, {Key: "_id", Value: dir}}).
 		SetLimit(int64(limit))
-}
 
-// buildFindOptionsWithSkip constructs the MongoDB find options with skip for offset pagination
-func (r *NotesRepo) buildFindOptionsWithSkip(req notes.ListNotesRequest, limit, skip int) *options.FindOptionsBuilder {
-	sortKey := "created_at"
-	if req.Sort != "" {
-		switch req.Sort {
-		case "created_at", "updated_at", "title":
-			sortKey = req.Sort
-		default:
-			sortKey = "created_at"
-		}
+	// Only add skip when offset >= 0 (for offset-based pagination)
+	if offset >= 0 {
+		opts.SetSkip(int64(offset))
 	}
 
-	dir := -1 // Default to descending
-	if req.Order == "asc" {
-		dir = 1
-	}
-
-	return options.Find().
-		SetSort(bson.D{{Key: sortKey, Value: dir}, {Key: "_id", Value: dir}}).
-		SetSkip(int64(skip)).
-		SetLimit(int64(limit))
+	return opts
 }
 
 // Update updates a note belonging to the specified user
@@ -519,7 +474,8 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 		return nil, false, err
 	}
 
-	opts := r.buildFindOptions(sideReq, limit)
+	// Offset is not used for side queries, so we pass -1
+	opts := r.buildFindOptions(sideReq, limit, -1)
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {

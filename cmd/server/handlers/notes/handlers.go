@@ -129,7 +129,7 @@ func (h *Handlers) Update(c *fiber.Ctx) error {
 		return err
 	}
 
-	noteID, err := handlerutil.ExtractNoteID(c, userID, "Update", notes.ErrNoteNotFound)
+	noteID, err := handlerutil.ExtractNoteID(c, userID, "Update")
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func (h *Handlers) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	noteID, err := handlerutil.ExtractNoteID(c, userID, "Delete", notes.ErrNoteNotFound)
+	noteID, err := handlerutil.ExtractNoteID(c, userID, "Delete")
 	if err != nil {
 		return err
 	}

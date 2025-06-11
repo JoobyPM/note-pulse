@@ -4,6 +4,7 @@ import (
 	"errors"
 	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
+	util "note-pulse/internal/utils"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -35,17 +36,19 @@ func GetUserID(c *fiber.Ctx) (bson.ObjectID, error) {
 }
 
 // ParseAndValidateBody parses request body and validates it
-func ParseAndValidateBody(c *fiber.Ctx, req any, validator *validator.Validate, handlerName string) error {
-	userID, _ := GetUserID(c)
-	userIDHex := userID.Hex()
+func ParseAndValidateBody(c *fiber.Ctx, req any, v *validator.Validate, handlerName string) error {
+	uidHex := "unknown"
+	if uid, err := GetUserID(c); err == nil {
+		uidHex = uid.Hex()
+	}
 
 	if err := c.BodyParser(req); err != nil {
-		logger.L().Warn("failed to parse request body", "handler", handlerName, "userID", userIDHex, "error", err)
+		logger.L().Info("failed to parse request body", "handler", handlerName, "userID", uidHex, "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := validator.Struct(req); err != nil {
-		logger.L().Warn("request validation failed", "handler", handlerName, "userID", userIDHex, "error", err)
+	if err := util.ValidateCtx(c.Context(), v, req); err != nil {
+		logger.L().Info("request validation failed", "handler", handlerName, "userID", uidHex, "error", err)
 		return httperr.InvalidInput(err)
 	}
 
@@ -53,17 +56,19 @@ func ParseAndValidateBody(c *fiber.Ctx, req any, validator *validator.Validate, 
 }
 
 // ParseAndValidateQuery parses query parameters and validates them
-func ParseAndValidateQuery(c *fiber.Ctx, req any, validator *validator.Validate, handlerName string) error {
-	userID, _ := GetUserID(c)
-	userIDHex := userID.Hex()
+func ParseAndValidateQuery(c *fiber.Ctx, req any, v *validator.Validate, handlerName string) error {
+	uidHex := "unknown"
+	if uid, err := GetUserID(c); err == nil {
+		uidHex = uid.Hex()
+	}
 
 	if err := c.QueryParser(req); err != nil {
-		logger.L().Warn("failed to parse query params", "handler", handlerName, "userID", userIDHex, "error", err)
+		logger.L().Info("failed to parse query params", "handler", handlerName, "userID", uidHex, "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
-	if err := validator.Struct(req); err != nil {
-		logger.L().Warn("query validation failed", "handler", handlerName, "userID", userIDHex, "error", err)
+	if err := util.ValidateCtx(c.Context(), v, req); err != nil {
+		logger.L().Info("query validation failed", "handler", handlerName, "userID", uidHex, "error", err)
 		return httperr.InvalidInput(err)
 	}
 
@@ -71,17 +76,17 @@ func ParseAndValidateQuery(c *fiber.Ctx, req any, validator *validator.Validate,
 }
 
 // ExtractNoteID extracts and validates note ID from URL parameter
-func ExtractNoteID(c *fiber.Ctx, userID bson.ObjectID, handlerName string, notFoundErr error) (bson.ObjectID, error) {
+func ExtractNoteID(c *fiber.Ctx, userID bson.ObjectID, handlerName string) (bson.ObjectID, error) {
 	noteIDStr := c.Params("id")
 	if noteIDStr == "" {
-		logger.L().Warn("missing note ID parameter", "handler", handlerName, "userID", userID.Hex(), "path", c.Path())
-		return bson.ObjectID{}, NotFoundError(notFoundErr)
+		logger.L().Info("missing note ID parameter", "handler", handlerName, "userID", userID.Hex(), "path", c.Path())
+		return bson.ObjectID{}, httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	noteID, err := bson.ObjectIDFromHex(noteIDStr)
 	if err != nil {
-		logger.L().Warn("invalid note ID parameter", "handler", handlerName, "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
-		return bson.ObjectID{}, NotFoundError(notFoundErr)
+		logger.L().Info("invalid note ID parameter", "handler", handlerName, "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
+		return bson.ObjectID{}, httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	return noteID, nil
