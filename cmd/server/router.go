@@ -98,7 +98,7 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 		},
 	})
 
-	authGrp := v1.Group("/auth")
+	authGrp := v1.Group("/auth", limiterMW)
 
 	usersRepo, newUsersRepoErr := mongo.NewUsersRepo(ctx, mongo.DB())
 	if newUsersRepoErr != nil {
@@ -114,8 +114,8 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 	authHandlers := auth.NewHandlers(authSvc, v)
 
 	authGrp.Post("/sign-up", authHandlers.SignUp)
-	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)
-	authGrp.Post("/refresh", limiterMW, authHandlers.Refresh)
+	authGrp.Post("/sign-in", authHandlers.SignIn)
+	authGrp.Post("/refresh", authHandlers.Refresh)
 	authGrp.Post("/sign-out", jwtMiddleware, authHandlers.SignOut)
 	authGrp.Post("/sign-out-all", jwtMiddleware, authHandlers.SignOutAll)
 
