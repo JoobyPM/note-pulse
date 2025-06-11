@@ -71,16 +71,18 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 // @Produce json
 // @Security Bearer
 // @Param limit query int false "Limit (default: 50, max: 100)" minimum(1) maximum(100)
-// @Param cursor query string false "Cursor for pagination"
-// @Param anchor query string false "Centre the window on this note id"
+// @Param cursor query string false "Cursor for pagination. Cannot be used with offset or anchor."
+// @Param anchor query string false "Centre the window on this note id. Cannot be used with offset or cursor."
 // @Param span query int false "How many notes to return (default:limit)" minimum(1) maximum(100)
 // @Param q query string false "Full-text search in title or body"
 // @Param color query string false "Hex color filter (#RRGGBB)"
 // @Param sort query string false "Sort field: created_at|updated_at|title"
 // @Param order query string false "asc|desc (default desc)"
+// @Param offset query int false "Offset for absolute positioning (0-10,000). Cannot be used with cursor or anchor." minimum(0) maximum(10000)
 // @Success 200 {object} notes.ListNotesResponse
 // @Failure 400 {object} httperr.E
 // @Failure 401 {object} httperr.E
+// @Failure 416 {object} httperr.E
 // @Router /notes [get]
 func (h *Handlers) List(c *fiber.Ctx) error {
 	userID, err := handlerutil.GetUserID(c)
@@ -96,9 +98,12 @@ func (h *Handlers) List(c *fiber.Ctx) error {
 	resp, err := h.service.List(c.Context(), userID, req)
 	if err != nil {
 		if errors.Is(err, notes.ErrBadRequest) {
-			// Log at INFO level since this is a 4xx client error, not a server error
 			c.Locals("log_level", "info")
 			return httperr.Fail(httperr.ErrBadRequest)
+		}
+		if errors.Is(err, notes.ErrOffsetBeyondTotal) {
+			c.Locals("log_level", "info")
+			return httperr.Fail(httperr.ErrRequestedRangeNotSatisfiable)
 		}
 		return handlerutil.HandleServiceError(err, "List", userID, nil, notes.ErrNoteNotFound)
 	}

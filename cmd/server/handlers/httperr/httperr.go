@@ -42,12 +42,13 @@ func InternalError(message string) E {
 
 // Pre-defined HTTP errors
 var (
-	ErrBadRequest           = E{Status: 400, Message: "Bad Request"}
-	ErrInvalidUserID        = E{Status: 400, Message: "Invalid user ID"}
-	ErrUnauthorized         = E{Status: 401, Message: "Unauthorized"}
-	ErrUserNotAuthenticated = E{Status: 401, Message: "User not authenticated"}
-	ErrTooManyRequests      = E{Status: 429, Message: "Too Many Requests"}
-	ErrInternal             = InternalError("Internal Server Error")
+	ErrBadRequest                   = E{Status: 400, Message: "Bad Request"}
+	ErrInvalidUserID                = E{Status: 400, Message: "Invalid user ID"}
+	ErrUnauthorized                 = E{Status: 401, Message: "Unauthorized"}
+	ErrUserNotAuthenticated         = E{Status: 401, Message: "User not authenticated"}
+	ErrRequestedRangeNotSatisfiable = E{Status: 416, Message: "Requested Range Not Satisfiable"}
+	ErrTooManyRequests              = E{Status: 429, Message: "Too Many Requests"}
+	ErrInternal                     = InternalError("Internal Server Error")
 )
 
 // Handler is the global error handler for Fiber

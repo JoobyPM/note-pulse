@@ -10,6 +10,7 @@ import (
 type Repository interface {
 	Create(ctx context.Context, n *Note) error
 	List(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest) ([]*Note, int64, int64, error)
+	ListWithSkip(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest, skip int) ([]*Note, int64, int64, error)
 	Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error)
 	Delete(ctx context.Context, userID, noteID bson.ObjectID) error
 

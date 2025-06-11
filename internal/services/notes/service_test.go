@@ -42,6 +42,14 @@ func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, filter L
 	return args.Get(0).([]*Note), args.Get(1).(int64), args.Get(2).(int64), args.Error(3)
 }
 
+func (m *MockNotesRepo) ListWithSkip(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest, skip int) ([]*Note, int64, int64, error) {
+	args := m.Called(ctx, userID, filter, skip)
+	if args.Get(0) == nil {
+		return nil, 0, 0, args.Error(3)
+	}
+	return args.Get(0).([]*Note), args.Get(1).(int64), args.Get(2).(int64), args.Error(3)
+}
+
 func (m *MockNotesRepo) Update(ctx context.Context, userID, noteID bson.ObjectID, patch UpdateNote) (*Note, error) {
 	args := m.Called(ctx, userID, noteID, patch)
 	if args.Get(0) == nil {
@@ -321,6 +329,14 @@ func TestServiceList(t *testing.T) {
 		},
 	}
 
+	// Helper offset values
+	offset0 := 0
+	offset300 := 300
+	offset1000 := 1000
+	offsetNeg1 := -1
+	offset1000001 := 1_000_001
+	offset100 := 100
+
 	tests := []struct {
 		name    string
 		req     ListNotesRequest
@@ -532,6 +548,119 @@ func TestServiceList(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  ErrNoteNotFound.Error(),
+		},
+		{
+			name: "successful offset-based pagination - first page",
+			req: ListNotesRequest{
+				Offset: &offset0,
+				Limit:  2,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// Return 3 notes (limit+1) to simulate having more data
+				threeNotes := []*Note{mockNotes[0], mockNotes[1], mockNotes[0]} // reuse first note as third
+				originalReq := ListNotesRequest{Offset: &offset0, Limit: 2}
+				fetchReq := ListNotesRequest{Offset: &offset0, Limit: 3}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(10), int64(15), nil)
+				repo.On("ListWithSkip", mock.Anything, userID, fetchReq, 0).Return(threeNotes, int64(10), int64(15), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Empty(t, resp.NextCursor) // Empty cursors for offset mode
+				assert.Empty(t, resp.PrevCursor)
+				assert.True(t, resp.HasMore)
+				assert.Equal(t, int64(10), resp.TotalCount)
+				assert.Equal(t, int64(15), resp.TotalCountUnfiltered)
+				assert.Equal(t, 2, resp.WindowSize)
+				assert.Equal(t, 0, resp.Offset)
+			},
+		},
+		{
+			name: "successful offset-based pagination - middle page",
+			req: ListNotesRequest{
+				Offset: &offset300,
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				originalReq := ListNotesRequest{Offset: &offset300, Limit: 50}
+				fetchReq := ListNotesRequest{Offset: &offset300, Limit: 51}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(1000), int64(1200), nil)
+				repo.On("ListWithSkip", mock.Anything, userID, fetchReq, 300).Return(mockNotes, int64(1000), int64(1200), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Empty(t, resp.NextCursor) // Empty cursors for offset mode
+				assert.Empty(t, resp.PrevCursor)
+				assert.False(t, resp.HasMore) // Less than limit, no more pages
+				assert.Equal(t, int64(1000), resp.TotalCount)
+				assert.Equal(t, int64(1200), resp.TotalCountUnfiltered)
+				assert.Equal(t, 2, resp.WindowSize)
+				assert.Equal(t, 300, resp.Offset)
+			},
+		},
+		{
+			name: "offset beyond total count returns 416",
+			req: ListNotesRequest{
+				Offset: &offset1000,
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				originalReq := ListNotesRequest{Offset: &offset1000, Limit: 50}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(500), int64(500), nil)
+			},
+			wantErr: true,
+			errMsg:  ErrOffsetBeyondTotal.Error(),
+		},
+		{
+			name: "offset validation - negative offset",
+			req: ListNotesRequest{
+				Offset: &offsetNeg1,
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset validation - offset too large",
+			req: ListNotesRequest{
+				Offset: &offset1000001,
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset with cursor should fail",
+			req: ListNotesRequest{
+				Offset: &offset100,
+				Cursor: noteID1.Hex(),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset with anchor should fail",
+			req: ListNotesRequest{
+				Offset: &offset100,
+				Anchor: noteID1.Hex(),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
 		},
 	}
 

@@ -120,3 +120,62 @@ func reqStr(m map[string]any, field string) string {
 }
 
 func itoa(i int) string { return fmt.Sprintf("%d", i) }
+
+// TestOffsetToCursorTransition tests that switching from offset mode to cursor mode works seamlessly
+func TestOffsetToCursorTransition(t *testing.T) {
+	env := SetupTestEnvironment(t)
+
+	token := setupTestUser(t, env, "offset-cursor@example.com", "Password123")
+	h := getAuthHeaders(t, token)
+
+	// Create enough notes to test offset=300&limit=50
+	createNotesForPagination(t, env, h, 400) // creates 400 notes
+
+	// Request with offset=300&limit=50
+	offsetURL := env.BaseURL + notesPath + "?offset=300&limit=50"
+	offsetResp := makeHTTPRequest(t, "GET", offsetURL, nil, h, http.StatusOK)
+
+	assert.Equal(t, "", reqStr(offsetResp, "next_cursor"), "offset mode should have empty next_cursor")
+	assert.Equal(t, "", reqStr(offsetResp, "prev_cursor"), "offset mode should have empty prev_cursor")
+	assert.Equal(t, float64(300), offsetResp["offset"].(float64), "offset should be set correctly")
+	assert.Equal(t, float64(50), offsetResp["window_size"].(float64), "window_size should match returned notes")
+
+	offsetNotes := offsetResp["notes"].([]any)
+	require.Len(t, offsetNotes, 50, "should return exactly 50 notes")
+
+	// Get the last note from offset results to use as cursor anchor
+	lastOffsetNote := offsetNotes[len(offsetNotes)-1].(map[string]any)
+	lastOffsetID := lastOffsetNote["id"].(string)
+
+	// Continue pagination using cursor mode with the last note's ID
+	cursorURL := env.BaseURL + notesPath + "?cursor=" + lastOffsetID + "&limit=50"
+	cursorResp := makeHTTPRequest(t, "GET", cursorURL, nil, h, http.StatusOK)
+
+	// Verify cursor response structure
+	nextCursor := reqStr(cursorResp, "next_cursor")
+	prevCursor := reqStr(cursorResp, "prev_cursor")
+	// Note: cursors may be empty if we're at the boundaries of the data
+	t.Logf("Cursor mode - next_cursor: %q, prev_cursor: %q", nextCursor, prevCursor)
+
+	// Cursor mode should not have offset field (it should be 0 or not present)
+	if offsetVal, exists := cursorResp["offset"]; exists {
+		assert.Equal(t, float64(0), offsetVal.(float64), "cursor mode should have zero offset")
+	}
+
+	cursorNotes := cursorResp["notes"].([]any)
+	require.True(t, len(cursorNotes) > 0, "cursor continuation should return more notes")
+
+	// Verify no gaps: first note from cursor should be different from last offset note
+	firstCursorNote := cursorNotes[0].(map[string]any)
+	firstCursorID := firstCursorNote["id"].(string)
+
+	assert.NotEqual(t, lastOffsetID, firstCursorID, "cursor continuation should not duplicate the last offset note")
+
+	// Verify ordering is maintained (assuming default desc order by created_at)
+	lastOffsetCreatedAt := lastOffsetNote["created_at"].(string)
+	firstCursorCreatedAt := firstCursorNote["created_at"].(string)
+
+	// In descending order, cursor notes should be older (smaller timestamps) than offset notes
+	assert.True(t, firstCursorCreatedAt <= lastOffsetCreatedAt,
+		"cursor continuation should maintain chronological ordering")
+}
