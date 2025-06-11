@@ -25,3 +25,6 @@ var ErrBadRequest = errors.New("bad request")
 
 // ErrInvalidLimit is returned when limit is invalid.
 var ErrInvalidLimit = errors.New("invalid limit")
+
+// ErrOffsetBeyondTotal is returned when offset is beyond total count.
+var ErrOffsetBeyondTotal = errors.New("offset beyond total count")

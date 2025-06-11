@@ -15,6 +15,9 @@ import (
 
 var silentLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+// intPtr returns a pointer to the given integer value
+func intPtr(i int) *int { return &i }
+
 var (
 	testColor        = "#FF0000"
 	ErrRepositoryMsg = "repository error"
@@ -34,8 +37,8 @@ func (m *MockNotesRepo) Create(ctx context.Context, note *Note) error {
 	return args.Error(0)
 }
 
-func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest) ([]*Note, int64, int64, error) {
-	args := m.Called(ctx, userID, filter)
+func (m *MockNotesRepo) List(ctx context.Context, userID bson.ObjectID, filter ListNotesRequest, skip int) ([]*Note, int64, int64, error) {
+	args := m.Called(ctx, userID, filter, skip)
 	if args.Get(0) == nil {
 		return nil, 0, 0, args.Error(3)
 	}
@@ -321,6 +324,13 @@ func TestServiceList(t *testing.T) {
 		},
 	}
 
+	// Helper offset values
+	offset300 := 300
+	offset1000 := 1000
+	offsetNeg1 := -1
+	offset1000001 := 1_000_001
+	offset100 := 100
+
 	tests := []struct {
 		name    string
 		req     ListNotesRequest
@@ -334,7 +344,7 @@ func TestServiceList(t *testing.T) {
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				expectedReq := ListNotesRequest{Limit: 51}
-				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes, int64(100), int64(200), nil)
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return(mockNotes, int64(100), int64(200), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
@@ -352,7 +362,7 @@ func TestServiceList(t *testing.T) {
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				expectedReq := ListNotesRequest{Limit: 26}
-				repo.On("List", mock.Anything, userID, expectedReq).Return(mockNotes[:1], int64(50), int64(80), nil)
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return(mockNotes[:1], int64(50), int64(80), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
@@ -373,7 +383,7 @@ func TestServiceList(t *testing.T) {
 				// Return 3 notes (limit+1) to simulate having more data
 				threeNotes := []*Note{mockNotes[0], mockNotes[1], mockNotes[0]} // reuse first note as third
 				expectedReq := ListNotesRequest{Limit: 3, Cursor: noteID1.Hex()}
-				repo.On("List", mock.Anything, userID, expectedReq).Return(threeNotes, int64(200), int64(300), nil)
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return(threeNotes, int64(200), int64(300), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
@@ -412,7 +422,7 @@ func TestServiceList(t *testing.T) {
 
 				// Return limit+1 items to simulate having more data
 				expectedReq := ListNotesRequest{Limit: 2, Sort: "title", Order: "asc"}
-				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{note1, note2}, int64(2), int64(5), nil)
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return([]*Note{note1, note2}, int64(2), int64(5), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
@@ -433,7 +443,7 @@ func TestServiceList(t *testing.T) {
 			},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				expectedReq := ListNotesRequest{Limit: 51, Q: ".^$"}
-				repo.On("List", mock.Anything, userID, expectedReq).Return([]*Note{}, int64(0), int64(10), nil)
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return([]*Note{}, int64(0), int64(10), nil)
 			},
 			wantErr: false,
 			check: func(t *testing.T, resp *ListNotesResponse) {
@@ -470,7 +480,7 @@ func TestServiceList(t *testing.T) {
 			req:  ListNotesRequest{},
 			setup: func(repo *MockNotesRepo, bus *MockBus) {
 				expectedReq := ListNotesRequest{Limit: 51}
-				repo.On("List", mock.Anything, userID, expectedReq).Return(nil, int64(0), int64(0), errors.New(ErrDBMsg))
+				repo.On("List", mock.Anything, userID, expectedReq, -1).Return(nil, int64(0), int64(0), errors.New(ErrDBMsg))
 			},
 			wantErr: true,
 			errMsg:  ErrListNotes.Error(),
@@ -532,6 +542,119 @@ func TestServiceList(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  ErrNoteNotFound.Error(),
+		},
+		{
+			name: "successful offset-based pagination - first page",
+			req: ListNotesRequest{
+				Offset: intPtr(1),
+				Limit:  2,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// Return 3 notes (limit+1) to simulate having more data
+				threeNotes := []*Note{mockNotes[0], mockNotes[1], mockNotes[0]} // reuse first note as third
+				originalReq := ListNotesRequest{Offset: intPtr(1), Limit: 2}
+				fetchReq := ListNotesRequest{Offset: intPtr(1), Limit: 3}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(10), int64(15), nil)
+				repo.On("List", mock.Anything, userID, fetchReq, 1).Return(threeNotes, int64(10), int64(15), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Empty(t, resp.NextCursor) // Empty cursors for offset mode
+				assert.Empty(t, resp.PrevCursor)
+				assert.True(t, resp.HasMore)
+				assert.Equal(t, int64(10), resp.TotalCount)
+				assert.Equal(t, int64(15), resp.TotalCountUnfiltered)
+				assert.Equal(t, 2, resp.WindowSize)
+				assert.Equal(t, 1, resp.Offset)
+			},
+		},
+		{
+			name: "successful offset-based pagination - middle page",
+			req: ListNotesRequest{
+				Offset: intPtr(offset300),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				originalReq := ListNotesRequest{Offset: intPtr(offset300), Limit: 50}
+				fetchReq := ListNotesRequest{Offset: intPtr(offset300), Limit: 51}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(1000), int64(1200), nil)
+				repo.On("List", mock.Anything, userID, fetchReq, 300).Return(mockNotes, int64(1000), int64(1200), nil)
+			},
+			wantErr: false,
+			check: func(t *testing.T, resp *ListNotesResponse) {
+				assert.Len(t, resp.Notes, 2)
+				assert.Empty(t, resp.NextCursor) // Empty cursors for offset mode
+				assert.Empty(t, resp.PrevCursor)
+				assert.False(t, resp.HasMore) // Less than limit, no more pages
+				assert.Equal(t, int64(1000), resp.TotalCount)
+				assert.Equal(t, int64(1200), resp.TotalCountUnfiltered)
+				assert.Equal(t, 2, resp.WindowSize)
+				assert.Equal(t, 300, resp.Offset)
+			},
+		},
+		{
+			name: "offset beyond total count returns 416",
+			req: ListNotesRequest{
+				Offset: intPtr(offset1000),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				originalReq := ListNotesRequest{Offset: intPtr(offset1000), Limit: 50}
+				repo.On("GetCounts", mock.Anything, userID, originalReq).Return(int64(500), int64(500), nil)
+			},
+			wantErr: true,
+			errMsg:  ErrOffsetBeyondTotal.Error(),
+		},
+		{
+			name: "offset validation - negative offset",
+			req: ListNotesRequest{
+				Offset: intPtr(offsetNeg1),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset validation - offset too large",
+			req: ListNotesRequest{
+				Offset: intPtr(offset1000001),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset with cursor should fail",
+			req: ListNotesRequest{
+				Offset: intPtr(offset100),
+				Cursor: noteID1.Hex(),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
+		},
+		{
+			name: "offset with anchor should fail",
+			req: ListNotesRequest{
+				Offset: intPtr(offset100),
+				Anchor: noteID1.Hex(),
+				Limit:  50,
+			},
+			setup: func(repo *MockNotesRepo, bus *MockBus) {
+				// No repo calls expected due to validation error
+			},
+			wantErr: true,
+			errMsg:  ErrBadRequest.Error(),
 		},
 	}
 
