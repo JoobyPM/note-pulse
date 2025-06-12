@@ -1,6 +1,10 @@
 package handlers
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"note-pulse/cmd/server/ctxkeys"
+
+	"github.com/gofiber/fiber/v2"
+)
 
 // Me returns the current user information. (demo and for future use)
 // @Summary Get current user
@@ -12,8 +16,8 @@ import "github.com/gofiber/fiber/v2"
 // @Success 200 {object} map[string]string
 // @Router /me [get]
 func Me(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(string)
-	userEmail := c.Locals("userEmail").(string)
+	userID := c.Locals(ctxkeys.UserIDKey).(string)
+	userEmail := c.Locals(ctxkeys.UserEmailKey).(string)
 	return c.JSON(fiber.Map{
 		"uid":   userID,
 		"email": userEmail,

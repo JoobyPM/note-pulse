@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/internal/config"
 	"note-pulse/internal/services/auth"
 
@@ -13,7 +14,7 @@ import (
 //
 //   - validates the Bearer token signature using cfg.JWTSecret
 //   - makes sure the token carries "user_id" and "email" claims
-//   - stores those values in ctx.Locals("userID") / ctx.Locals("userEmail") so
+//   - stores those values in ctx.Locals(ctxkeys.UserIDKey) / ctx.Locals(ctxkeys.UserEmailKey) so
 //     downstream handlers can trust them.
 //
 // On any problem it bubbles up a 401 via the global httperr handler.
@@ -35,8 +36,8 @@ func JWT(cfg config.Config) fiber.Handler {
 				return auth.ErrInvalidTokenMissingEmail
 			}
 
-			c.Locals("userID", userID)
-			c.Locals("userEmail", userEmail)
+			c.Locals(ctxkeys.UserIDKey, userID)
+			c.Locals(ctxkeys.UserEmailKey, userEmail)
 			return c.Next()
 		},
 

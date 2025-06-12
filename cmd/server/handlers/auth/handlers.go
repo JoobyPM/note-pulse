@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/handlers/httperr"
+
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/auth"
 	util "note-pulse/internal/utils"
@@ -155,7 +157,7 @@ func (h *Handlers) Refresh(c *fiber.Ctx) error {
 // @Router /auth/sign-out [post]
 func (h *Handlers) SignOut(c *fiber.Ctx) error {
 	// Extract user ID from JWT token context
-	userIDStr := c.Locals("userID")
+	userIDStr := c.Locals(ctxkeys.UserIDKey)
 	if userIDStr == nil {
 		logger.L().Warn("missing user ID in token context", "handler", "SignOut")
 		return httperr.Fail(httperr.ErrUserNotAuthenticated)
@@ -163,7 +165,7 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 
 	userID, err := bson.ObjectIDFromHex(userIDStr.(string))
 	if err != nil {
-		logger.L().Warn("invalid user ID format", "handler", "SignOut", "userID", userIDStr, "error", err)
+		logger.L().Warn("invalid user ID format", "handler", "SignOut", ctxkeys.UserIDKey, userIDStr, "error", err)
 		return httperr.Fail(httperr.ErrInvalidUserID)
 	}
 
@@ -182,7 +184,7 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 		if errors.Is(err, auth.ErrInvalidRefreshToken) {
 			return httperr.Fail(httperr.ErrUnauthorized)
 		}
-		logger.L().Error("signout service failed", "handler", "SignOut", "userID", userID.Hex(), "error", err)
+		logger.L().Error("signout service failed", "handler", "SignOut", ctxkeys.UserIDKey, userID.Hex(), "error", err)
 		return httperr.Fail(httperr.ErrInternal)
 	}
 
@@ -200,7 +202,7 @@ func (h *Handlers) SignOut(c *fiber.Ctx) error {
 // @Router /auth/sign-out-all [post]
 func (h *Handlers) SignOutAll(c *fiber.Ctx) error {
 	// Extract user ID from JWT token context
-	userIDStr := c.Locals("userID")
+	userIDStr := c.Locals(ctxkeys.UserIDKey)
 	if userIDStr == nil {
 		logger.L().Warn("missing user ID in token context", "handler", "SignOutAll")
 		return httperr.Fail(httperr.ErrUserNotAuthenticated)
@@ -208,12 +210,12 @@ func (h *Handlers) SignOutAll(c *fiber.Ctx) error {
 
 	userID, err := bson.ObjectIDFromHex(userIDStr.(string))
 	if err != nil {
-		logger.L().Warn("invalid user ID format", "handler", "SignOutAll", "userID", userIDStr, "error", err)
+		logger.L().Warn("invalid user ID format", "handler", "SignOutAll", ctxkeys.UserIDKey, userIDStr, "error", err)
 		return httperr.Fail(httperr.ErrInvalidUserID)
 	}
 
 	if err := h.authService.SignOutAll(c.Context(), userID); err != nil {
-		logger.L().Error("signout all service failed", "handler", "SignOutAll", "userID", userID.Hex(), "error", err)
+		logger.L().Error("signout all service failed", "handler", "SignOutAll", ctxkeys.UserIDKey, userID.Hex(), "error", err)
 		return httperr.Fail(httperr.InternalError(err.Error()))
 	}
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/testutil"
 	"note-pulse/internal/services/notes"
 
@@ -77,8 +78,8 @@ func SetupWebSocketHandlersApp(t *testing.T, config WebSocketTestConfig) (*fiber
 	wsHandlers := NewWebSocketHandlers(hub, config.Secret, config.MaxSessionSec)
 
 	app.Get("/ws", wsHandlers.WSUpgrade, func(c *fiber.Ctx) error {
-		userID := c.Locals("userID").(string)
-		userEmail := c.Locals("userEmail").(string)
+		userID := c.Locals(ctxkeys.UserIDKey).(string)
+		userEmail := c.Locals(ctxkeys.UserEmailKey).(string)
 		return c.JSON(fiber.Map{
 			"user_id": userID,
 			"email":   userEmail,
