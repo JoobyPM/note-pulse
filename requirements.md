@@ -74,7 +74,8 @@ all their connected devices through WebSocket.
 | Testing       | Unit, integration and _end‑to‑end_ tests (Go test tags `e2e`) run in GitHub Actions; >90 files, >7000 LOC under `/test`.                                 |
 | CI/CD         | `make check` performs lint + fmt + vet + tests + build; executed in CI. Docker image published to GHCR.                                                  |
 | Security      | Passwords hashed with bcrypt (cost configurable, default 8). Password strength validator (≥8 chars, upper+lower+digit).                                  |
-| Rate limits   | Sign‑in limited to **`SIGNIN_RATE_PER_MIN`** (default 5) via Fiber `limiter` middleware.                                                                 |
+| Rate limits   | Auth routes should be limited to **`AUTH_RATE_PER_MIN`** (default 5) via Fiber `limiter` middleware.                                                     |
+| Rate limits   | App routes should be limited to **`APP_RATE_PER_MIN`** (default 0 - no rate limiting) via Fiber `limiter` middleware.                                    |
 
 ### 2.3 API surface (v1)
 

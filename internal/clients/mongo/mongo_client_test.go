@@ -94,7 +94,7 @@ func TestMongoClientShutdownResets(t *testing.T) {
 	assert.Nil(t, db1, msgDBShouldBeNil)
 
 	err = Shutdown(ctx)
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, ErrNotInitialized)
 
 	client2, db2, initErr := Init(ctx, cfg, log)
 	require.Error(t, initErr)
@@ -201,13 +201,13 @@ func TestMongoClientShutdownIdempotency(t *testing.T) {
 	_, _, err = Init(ctx, cfg, log)
 	require.Error(t, err)
 
-	err1 := Shutdown(ctx)
-	err2 := Shutdown(ctx)
-	err3 := Shutdown(ctx)
+	err1 := Shutdown(ctx) // client was never up
+	err2 := Shutdown(ctx) // already shut down
+	err3 := Shutdown(ctx) // idem
 
-	assert.NoError(t, err1)
-	assert.NoError(t, err2)
-	assert.NoError(t, err3)
+	assert.ErrorIs(t, err1, ErrNotInitialized)
+	assert.ErrorIs(t, err2, ErrShutdown)
+	assert.ErrorIs(t, err3, ErrShutdown)
 
 	assert.Nil(t, Client())
 	assert.Nil(t, DB())
@@ -245,9 +245,11 @@ func TestMongoClientRetryAfterFailure(t *testing.T) {
 // reset clears the singleton without going through Shutdown (helper for tests).
 // test helper - do not call from prod code
 func reset() {
-	mu.Lock()
-	defer mu.Unlock()
 	client = nil
 	db = nil
 	initErr = nil
+
+	initOnce = sync.Once{}
+	shutdownOnce = sync.Once{}
+	txnProbeOnce = sync.Once{}
 }

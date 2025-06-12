@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.28.0
+	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gofiber/adaptor/v2 v2.2.1
 	github.com/gofiber/contrib/jwt v1.1.2
@@ -35,7 +36,6 @@ require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/testutil"
 	"note-pulse/internal/services/auth"
 
@@ -131,8 +132,8 @@ func SetupAuthTestWithJWT(t *testing.T) *AuthTestSetup {
 	protected := v1.Group("/me", jwtMW)
 	protected.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"uid":   c.Locals("userID"),
-			"email": c.Locals("userEmail"),
+			"uid":   c.Locals(ctxkeys.UserIDKey),
+			"email": c.Locals(ctxkeys.UserEmailKey),
 		})
 	})
 

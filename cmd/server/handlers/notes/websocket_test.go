@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/testutil"
 	"note-pulse/internal/config"
 	"note-pulse/internal/logger"
@@ -85,10 +86,10 @@ func TestWSSessionTimeout(t *testing.T) {
 		if websocket.IsWebSocketUpgrade(c) {
 			userID := bson.NewObjectID().Hex()
 			email := "test@example.com"
-			c.Locals("userID", userID)
-			c.Locals("userEmail", email)
+			c.Locals(ctxkeys.UserIDKey, userID)
+			c.Locals(ctxkeys.UserEmailKey, email)
 			// Pass the correct context type so WSNotesStream doesn't reject the upgrade.
-			c.Locals("parentCtx", c.UserContext())
+			c.Locals(ctxkeys.ParentCtxKey, c.UserContext())
 			return c.Next()
 		}
 		return c.SendStatus(400)

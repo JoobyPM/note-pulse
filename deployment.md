@@ -151,7 +151,7 @@ Enable server‑side export by setting `PYROSCOPE_ENABLED=true`.
   `notepulse-server:v1.3.2@sha256:…`).
 - Provide **external MongoDB** (recommended: 3‑member replica set with auth &
   TLS). Set `MONGO_URI` accordingly.
-- Configure `JWT_SECRET`, `LOG_LEVEL`, `SIGNIN_RATE_PER_MIN` via
+- Configure `JWT_SECRET`, `LOG_LEVEL`, `AUTH_RATE_PER_MIN`, `APP_RATE_PER_MIN` via
   secrets/config‑maps.
 - Enable TLS termination at ingress (server listens on plain HTTP inside
   container).

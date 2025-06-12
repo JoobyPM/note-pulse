@@ -2,6 +2,7 @@ package handlerutil
 
 import (
 	"errors"
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	util "note-pulse/internal/utils"
@@ -18,18 +19,22 @@ func NotFoundError(err error) error {
 	})
 }
 
+func unauthorizedError() (bson.ObjectID, error) {
+	return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
+}
+
 // GetUserID extracts user ID from fiber context
 func GetUserID(c *fiber.Ctx) (bson.ObjectID, error) {
-	userIDStr, ok := c.Locals("userID").(string)
+	userIDStr, ok := c.Locals(ctxkeys.UserIDKey).(string)
 	if !ok {
 		logger.L().Error("user ID not found in context", "handler", "getUserID", "path", c.Path())
-		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
+		return unauthorizedError()
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
 		logger.L().Error("invalid user ID", "handler", "getUserID", "userIDStr", userIDStr, "path", c.Path(), "error", err)
-		return bson.ObjectID{}, httperr.Fail(httperr.ErrUnauthorized)
+		return unauthorizedError()
 	}
 
 	return userID, nil
@@ -43,12 +48,12 @@ func ParseAndValidateBody(c *fiber.Ctx, req any, v *validator.Validate, handlerN
 	}
 
 	if err := c.BodyParser(req); err != nil {
-		logger.L().Info("failed to parse request body", "handler", handlerName, "userID", uidHex, "error", err)
+		logger.L().Info("failed to parse request body", "handler", handlerName, ctxkeys.UserIDKey, uidHex, "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	if err := util.ValidateCtx(c.Context(), v, req); err != nil {
-		logger.L().Info("request validation failed", "handler", handlerName, "userID", uidHex, "error", err)
+		logger.L().Info("request validation failed", "handler", handlerName, ctxkeys.UserIDKey, uidHex, "error", err)
 		return httperr.InvalidInput(err)
 	}
 
@@ -63,12 +68,12 @@ func ParseAndValidateQuery(c *fiber.Ctx, req any, v *validator.Validate, handler
 	}
 
 	if err := c.QueryParser(req); err != nil {
-		logger.L().Info("failed to parse query params", "handler", handlerName, "userID", uidHex, "error", err)
+		logger.L().Info("failed to parse query params", "handler", handlerName, ctxkeys.UserIDKey, uidHex, "error", err)
 		return httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	if err := util.ValidateCtx(c.Context(), v, req); err != nil {
-		logger.L().Info("query validation failed", "handler", handlerName, "userID", uidHex, "error", err)
+		logger.L().Info("query validation failed", "handler", handlerName, ctxkeys.UserIDKey, uidHex, "error", err)
 		return httperr.InvalidInput(err)
 	}
 
@@ -79,13 +84,13 @@ func ParseAndValidateQuery(c *fiber.Ctx, req any, v *validator.Validate, handler
 func ExtractNoteID(c *fiber.Ctx, userID bson.ObjectID, handlerName string) (bson.ObjectID, error) {
 	noteIDStr := c.Params("id")
 	if noteIDStr == "" {
-		logger.L().Info("missing note ID parameter", "handler", handlerName, "userID", userID.Hex(), "path", c.Path())
+		logger.L().Info("missing note ID parameter", "handler", handlerName, ctxkeys.UserIDKey, userID.Hex(), "path", c.Path())
 		return bson.ObjectID{}, httperr.Fail(httperr.ErrBadRequest)
 	}
 
 	noteID, err := bson.ObjectIDFromHex(noteIDStr)
 	if err != nil {
-		logger.L().Info("invalid note ID parameter", "handler", handlerName, "userID", userID.Hex(), "noteIDStr", noteIDStr, "error", err)
+		logger.L().Info("invalid note ID parameter", "handler", handlerName, ctxkeys.UserIDKey, userID.Hex(), "noteIDStr", noteIDStr, "error", err)
 		return bson.ObjectID{}, httperr.Fail(httperr.ErrBadRequest)
 	}
 
@@ -95,7 +100,7 @@ func ExtractNoteID(c *fiber.Ctx, userID bson.ObjectID, handlerName string) (bson
 // HandleServiceError handles common service error responses
 func HandleServiceError(err error, handlerName string, userID bson.ObjectID, noteID *bson.ObjectID, notFoundErr error) error {
 	userIDHex := userID.Hex()
-	logFields := []any{"handler", handlerName, "userID", userIDHex, "error", err}
+	logFields := []any{"handler", handlerName, ctxkeys.UserIDKey, userIDHex, "error", err}
 
 	if noteID != nil {
 		logFields = append(logFields, "noteID", noteID.Hex())

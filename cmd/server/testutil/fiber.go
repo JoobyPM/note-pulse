@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/config"
 	"note-pulse/internal/logger"
@@ -73,8 +74,8 @@ func SetupJWTMiddleware(jwtSecret string) fiber.Handler {
 				return httperr.Fail(httperr.E{Status: 401, Message: "Invalid token: missing email"})
 			}
 
-			c.Locals("userID", userID)
-			c.Locals("userEmail", userEmail)
+			c.Locals(ctxkeys.UserIDKey, userID)
+			c.Locals(ctxkeys.UserEmailKey, userEmail)
 			return c.Next()
 		},
 	})

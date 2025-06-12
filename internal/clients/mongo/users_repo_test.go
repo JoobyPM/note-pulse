@@ -41,7 +41,8 @@ func TestUsersRepoCreate(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewUsersRepo(context.Background(), db)
+	repo, newUsersRepoErr := NewUsersRepo(context.Background(), db)
+	require.NoError(t, newUsersRepoErr)
 
 	user := getTestUserStruct()
 
@@ -66,7 +67,8 @@ func TestUsersRepoFindByEmail(t *testing.T) {
 	_, db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	repo := NewUsersRepo(context.Background(), db)
+	repo, newUsersRepoErr := NewUsersRepo(context.Background(), db)
+	require.NoError(t, newUsersRepoErr)
 
 	_, err := repo.FindByEmail(ctx, "nonexistent@example.com")
 	assert.Error(t, err, "expected error")

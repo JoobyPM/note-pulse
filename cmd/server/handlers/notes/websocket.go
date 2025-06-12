@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"note-pulse/cmd/server/ctxkeys"
 	"note-pulse/cmd/server/handlers/httperr"
 	"note-pulse/internal/logger"
 	"note-pulse/internal/services/notes"
@@ -74,10 +75,10 @@ func (h *WebSocketHandlers) WSUpgrade(c *fiber.Ctx) error {
 		}
 
 		// Store user info and context in locals for the WebSocket handler
-		c.Locals("userID", userID.Hex())
-		c.Locals("userEmail", userEmail)
+		c.Locals(ctxkeys.UserIDKey, userID.Hex())
+		c.Locals(ctxkeys.UserEmailKey, userEmail)
 		// Use Fiber's request‑bound context so WSNotesStream gets a *real* context.Context.
-		c.Locals("parentCtx", c.UserContext())
+		c.Locals(ctxkeys.ParentCtxKey, c.UserContext())
 
 		return c.Next()
 	}
@@ -128,22 +129,22 @@ type wsConnection struct {
 
 // initializeConnection validates and sets up the WebSocket connection
 func (h *WebSocketHandlers) initializeConnection(c *websocket.Conn) (*wsConnection, context.Context, error) {
-	userIDStr, ok := c.Locals("userID").(string)
+	userIDStr, ok := c.Locals(ctxkeys.UserIDKey).(string)
 	if !ok {
-		logger.L().Error("userID not found in WebSocket context")
-		return nil, nil, fmt.Errorf("userID not found")
+		logger.L().Error(ctxkeys.UserIDKey + " not found in WebSocket context")
+		return nil, nil, fmt.Errorf(ctxkeys.UserIDKey + " not found")
 	}
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
-		logger.L().Error("invalid userID in WebSocket context", "userID", userIDStr, "error", err)
-		return nil, nil, fmt.Errorf("invalid userID: %w", err)
+		logger.L().Error("invalid "+ctxkeys.UserIDKey+" in WebSocket context", ctxkeys.UserIDKey, userIDStr, "error", err)
+		return nil, nil, fmt.Errorf("invalid %s: %w", ctxkeys.UserIDKey, err)
 	}
 
-	parentCtx, ok := c.Locals("parentCtx").(context.Context)
+	parentCtx, ok := c.Locals(ctxkeys.ParentCtxKey).(context.Context)
 	if !ok {
-		logger.L().Error("parentCtx not found in WebSocket context")
-		return nil, nil, fmt.Errorf("parentCtx not found")
+		logger.L().Error(ctxkeys.ParentCtxKey + " not found in WebSocket context")
+		return nil, nil, fmt.Errorf(ctxkeys.ParentCtxKey + " not found")
 	}
 
 	connULID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader)
@@ -335,7 +336,7 @@ func (h *WebSocketHandlers) validateJWT(tokenString string) (bson.ObjectID, stri
 
 	userID, err := bson.ObjectIDFromHex(userIDStr)
 	if err != nil {
-		return bson.ObjectID{}, "", fmt.Errorf("invalid user_id: %v", err)
+		return bson.ObjectID{}, "", fmt.Errorf("invalid user_id: %w", err)
 	}
 
 	return userID, userEmail, nil

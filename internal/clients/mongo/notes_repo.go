@@ -33,14 +33,17 @@ func (r *NotesRepo) calcCounts(
 ) (int64, int64, error) {
 	total, err := r.collection.CountDocuments(ctx, filter)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("failed to count documents: %w", err)
 	}
 	if !hasFilters {
 		return total, total, nil
 	}
 	unfilteredFilter := bson.M{"user_id": userID}
 	unfiltered, err := r.collection.CountDocuments(ctx, unfilteredFilter)
-	return total, unfiltered, err
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to count unfiltered documents: %w", err)
+	}
+	return total, unfiltered, nil
 }
 
 // translateNotFound maps the driver ErrNoDocuments to the domain-level ErrNoteNotFound.
@@ -48,7 +51,7 @@ func translateNotFound(err error) error {
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return notes.ErrNoteNotFound
 	}
-	return err
+	return fmt.Errorf("failed to translate not found: %w", err)
 }
 
 // NewNotesRepo creates a new notes repository
@@ -116,7 +119,6 @@ func NewNotesRepo(parentCtx context.Context, db *mongo.Database) (*NotesRepo, er
 			if mongo.IsDuplicateKeyError(err) {
 				logger.L().Debug("index already exists, continuing", "collection", "notes")
 			} else {
-				logger.L().Error("failed to create index", "collection", "notes", "error", err)
 				return nil, fmt.Errorf("failed to create notes collection index: %w", err)
 			}
 		}
@@ -136,8 +138,10 @@ func (r *NotesRepo) Create(ctx context.Context, note *notes.Note) error {
 	note.CreatedAt = now
 	note.UpdatedAt = now
 
-	_, err := r.collection.InsertOne(ctx, note)
-	return err
+	if _, err := r.collection.InsertOne(ctx, note); err != nil {
+		return fmt.Errorf("failed to insert note: %w", err)
+	}
+	return nil
 }
 
 // List retrieves notes for a user with filtering, search, sorting, and cursor-based pagination
@@ -150,7 +154,7 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.Li
 	var err error
 	if offset >= 0 {
 		// Offset-based pagination: no cursor filters
-		filter, err = r.buildBasicListFilter(userID, req)
+		filter = r.buildBasicListFilter(userID, req)
 	} else {
 		// Cursor-based pagination: include cursor filters
 		filter, err = r.buildListFilter(userID, req)
@@ -166,12 +170,12 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.Li
 
 	totalCount, totalCountUnfiltered, err := r.calcCounts(ctx, userID, filter, hasFilters)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("failed to calculate counts: %w", err)
 	}
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
-		return nil, totalCount, totalCountUnfiltered, err
+		return nil, totalCount, totalCountUnfiltered, fmt.Errorf("failed to find notes: %w", err)
 	}
 	defer func(ctxToClose context.Context) {
 		if cerr := cursor.Close(ctxToClose); cerr != nil {
@@ -181,14 +185,14 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.Li
 
 	var notesList []*notes.Note
 	if err := cursor.All(ctx, &notesList); err != nil {
-		return nil, totalCount, totalCountUnfiltered, err
+		return nil, totalCount, totalCountUnfiltered, fmt.Errorf("failed to decode notes: %w", err)
 	}
 
 	return notesList, totalCount, totalCountUnfiltered, nil
 }
 
 // buildBasicListFilter constructs the MongoDB filter for offset-based queries (no cursor filters)
-func (r *NotesRepo) buildBasicListFilter(userID bson.ObjectID, req notes.ListNotesRequest) (bson.M, error) {
+func (r *NotesRepo) buildBasicListFilter(userID bson.ObjectID, req notes.ListNotesRequest) bson.M {
 	filter := bson.M{"user_id": userID}
 
 	if req.Color != "" {
@@ -199,7 +203,7 @@ func (r *NotesRepo) buildBasicListFilter(userID bson.ObjectID, req notes.ListNot
 
 	// No cursor filter for offset-based pagination
 
-	return filter, nil
+	return filter
 }
 
 // buildListFilter constructs the MongoDB filter for the List query
@@ -214,7 +218,7 @@ func (r *NotesRepo) buildListFilter(userID bson.ObjectID, req notes.ListNotesReq
 
 	if req.Cursor != "" {
 		if err := r.addCursorFilter(filter, req); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to build list filter: %w", err)
 		}
 	}
 
@@ -253,7 +257,7 @@ func (r *NotesRepo) addCursorFilter(filter bson.M, req notes.ListNotesRequest) e
 func (r *NotesRepo) addObjectIDCursorFilter(filter bson.M, cursorStr, order string) error {
 	after, err := bson.ObjectIDFromHex(cursorStr)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid cursor format: %w", err)
 	}
 
 	if after.IsZero() {
@@ -389,7 +393,7 @@ func (r *NotesRepo) Delete(ctx context.Context, userID, noteID bson.ObjectID) er
 
 	result, err := r.collection.DeleteOne(ctx, filter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to delete note: %w", err)
 	}
 
 	if result.DeletedCount == 0 {
@@ -471,7 +475,7 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 
 	// Add cursor filter to position relative to anchor
 	if err := r.addCursorFilter(filter, sideReq); err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("failed to add cursor filter: %w", err)
 	}
 
 	// Offset is not used for side queries, so we pass -1
@@ -479,7 +483,7 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("failed to find notes: %w", err)
 	}
 	defer func(ctxToClose context.Context) {
 		if cerr := cursor.Close(ctxToClose); cerr != nil {
@@ -489,7 +493,7 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 
 	var notesList []*notes.Note
 	if err := cursor.All(ctx, &notesList); err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("failed to decode notes: %w", err)
 	}
 
 	// Return if we got a full result set (meaning there might be more)
@@ -521,7 +525,7 @@ func (r *NotesRepo) GetAnchorIndex(ctx context.Context, userID bson.ObjectID, re
 
 	count, err := r.collection.CountDocuments(ctx, beforeFilter, opts)
 	if err != nil {
-		return -1, err
+		return -1, fmt.Errorf("failed to count documents: %w", err)
 	}
 
 	return count, nil

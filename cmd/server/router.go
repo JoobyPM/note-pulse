@@ -23,7 +23,6 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
@@ -88,26 +87,31 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 		logger.L().Info("request logging disabled")
 	}
 
+	// App rate limiting
+	v1.Use(middlewares.BuildRateLimiter(cfg.AppRatePerMin, RateLimitExpiration, "/api/v1/auth"))
+
 	jwtMiddleware := middlewares.JWT(cfg)
 
-	limiterMW := limiter.New(limiter.Config{
-		Max:        cfg.SignInRatePerMin,
-		Expiration: RateLimitExpiration,
-		LimitReached: func(c *fiber.Ctx) error {
-			return httperr.Fail(httperr.ErrTooManyRequests)
-		},
-	})
+	authGrp := v1.Group("/auth",
+		middlewares.BuildRateLimiter(cfg.AuthRatePerMin, RateLimitExpiration),
+	)
 
-	authGrp := v1.Group("/auth")
-
-	usersRepo := mongo.NewUsersRepo(ctx, mongo.DB())
-	refreshTokensRepo := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
+	usersRepo, newUsersRepoErr := mongo.NewUsersRepo(ctx, mongo.DB())
+	if newUsersRepoErr != nil {
+		logger.L().Error("failed to create users repository", "error", newUsersRepoErr)
+		panic(newUsersRepoErr)
+	}
+	refreshTokensRepo, newRefreshTokensRepoErr := mongo.NewRefreshTokensRepo(ctx, mongo.DB())
+	if newRefreshTokensRepoErr != nil {
+		logger.L().Error("failed to create refresh tokens repository", "error", newRefreshTokensRepoErr)
+		panic(newRefreshTokensRepoErr)
+	}
 	authSvc := authServices.NewService(usersRepo, refreshTokensRepo, cfg, logger.L())
 	authHandlers := auth.NewHandlers(authSvc, v)
 
 	authGrp.Post("/sign-up", authHandlers.SignUp)
-	authGrp.Post("/sign-in", limiterMW, authHandlers.SignIn)
-	authGrp.Post("/refresh", limiterMW, authHandlers.Refresh)
+	authGrp.Post("/sign-in", authHandlers.SignIn)
+	authGrp.Post("/refresh", authHandlers.Refresh)
 	authGrp.Post("/sign-out", jwtMiddleware, authHandlers.SignOut)
 	authGrp.Post("/sign-out-all", jwtMiddleware, authHandlers.SignOutAll)
 
