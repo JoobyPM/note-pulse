@@ -15,7 +15,11 @@ var testCredentials = map[string]string{
 }
 
 func TestSignOutAllE2E(t *testing.T) {
-	env := SetupTestEnvironment(t)
+	extraEnv := map[string]string{
+		"AUTH_RATE_PER_MIN": "1000",
+	}
+
+	env := SetupTestEnvironmentWithEnv(t, extraEnv)
 
 	authSteps := []HTTPJSONStep{
 		{

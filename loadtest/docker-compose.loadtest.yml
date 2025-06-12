@@ -18,7 +18,7 @@ services:
       - .env.bench
     environment:
       REQUEST_LOGGING_ENABLED: false
-      SIGNIN_RATE_PER_MIN: 1000000
+      AUTH_RATE_PER_MIN: 1000000
       LOG_LEVEL: error
     profiles: ["loadtest"]
     deploy:

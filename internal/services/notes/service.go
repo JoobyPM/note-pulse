@@ -301,6 +301,19 @@ func (s *Service) offsetList(ctx context.Context, userID bson.ObjectID, req List
 		return nil, ErrListNotes
 	}
 
+	// If the query returns zero rows, just reply with an empty page.
+	if totalCount == 0 {
+		return &ListNotesResponse{
+			Notes:                []*Note{},
+			HasMore:              false,
+			TotalCount:           0,
+			TotalCountUnfiltered: totalCountUnfiltered,
+			WindowSize:           0,
+			Offset:               0,
+			TotalPages:           0,
+		}, nil
+	}
+
 	// Return 416 if offset is beyond total count
 	if int64(offset) >= totalCount {
 		s.log.Info("offset beyond total count", "offset", offset, "total_count", totalCount)

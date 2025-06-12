@@ -23,7 +23,6 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
@@ -88,17 +87,14 @@ func setupRouter(ctx context.Context, cfg config.Config) *fiber.App {
 		logger.L().Info("request logging disabled")
 	}
 
+	// App rate limiting
+	v1.Use(middlewares.BuildRateLimiter(cfg.AppRatePerMin, RateLimitExpiration, "/api/v1/auth"))
+
 	jwtMiddleware := middlewares.JWT(cfg)
 
-	limiterMW := limiter.New(limiter.Config{
-		Max:        cfg.SignInRatePerMin,
-		Expiration: RateLimitExpiration,
-		LimitReached: func(c *fiber.Ctx) error {
-			return httperr.Fail(httperr.ErrTooManyRequests)
-		},
-	})
-
-	authGrp := v1.Group("/auth", limiterMW)
+	authGrp := v1.Group("/auth",
+		middlewares.BuildRateLimiter(cfg.AuthRatePerMin, RateLimitExpiration),
+	)
 
 	usersRepo, newUsersRepoErr := mongo.NewUsersRepo(ctx, mongo.DB())
 	if newUsersRepoErr != nil {

@@ -32,6 +32,9 @@ const (
 	meEndpoint = "/api/v1/me"
 
 	shouldRefreshedMsg = "should refresh"
+
+	appRateLimitEnv  = "APP_RATE_PER_MIN"
+	authRateLimitEnv = "AUTH_RATE_PER_MIN"
 )
 
 // limitedWriter wraps an io.Writer and limits the amount of data written
@@ -316,6 +319,16 @@ func signInExpect(t *testing.T, c *http.Client, baseURL, email, password string,
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, status)
+}
+
+func signInExpectTooManyRequests(t *testing.T, c *http.Client, baseURL, email, password string) {
+	t.Helper()
+	status, err := doJSONPost(t, c, baseURL+signInEndpoint, map[string]string{
+		"email":    email,
+		"password": password,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusTooManyRequests, status)
 }
 
 func doJSONPost(t *testing.T, c *http.Client, url string, body any) (int, error) {

@@ -18,7 +18,7 @@ func baseValidConfig() Config {
 	return Config{
 		AppPort:            8080,
 		BcryptCost:         12,
-		SignInRatePerMin:   5,
+		AuthRatePerMin:     5,
 		LogLevel:           "info",
 		LogFormat:          "json",
 		MongoURI:           "mongodb://localhost:27017",
@@ -41,7 +41,7 @@ func clearConfigEnvVars(t *testing.T) {
 	for _, k := range []string{
 		"APP_PORT",
 		"BCRYPT_COST",
-		"SIGNIN_RATE_PER_MIN",
+		"AUTH_RATE_PER_MIN",
 		"LOG_LEVEL",
 		"LOG_FORMAT",
 		"MONGO_URI",
@@ -70,7 +70,7 @@ func TestConfigLoadDefaults(t *testing.T) {
 
 	assert.Equal(t, 8080, cfg.AppPort)
 	assert.Equal(t, 8, cfg.BcryptCost)
-	assert.Equal(t, 5, cfg.SignInRatePerMin)
+	assert.Equal(t, 5, cfg.AuthRatePerMin)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.Equal(t, "mongodb://mongo:27017", cfg.MongoURI)
@@ -210,10 +210,10 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "signin rate too low",
 			modify: func(c *Config) {
-				c.SignInRatePerMin = 0
+				c.AuthRatePerMin = 0
 			},
 			wantErr: true,
-			errMsg:  ErrSignInRatePerMin.Error(),
+			errMsg:  ErrAuthRatePerMin.Error(),
 		},
 		{
 			name: "JWT secret too short for HS256",

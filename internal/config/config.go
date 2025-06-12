@@ -13,7 +13,8 @@ var (
 	ErrJWTSecretTooShort          = errors.New("JWT_SECRET must be ≥32 chars")
 	ErrAppPortRange               = errors.New("APP_PORT must be between 1 and 65535")
 	ErrBcryptCostRange            = errors.New("BCRYPT_COST must be between 8 and 16")
-	ErrSignInRatePerMin           = errors.New("SIGNIN_RATE_PER_MIN must be greater than or equal to 1")
+	ErrAuthRatePerMin             = errors.New("AUTH_RATE_PER_MIN must be greater than or equal to 1")
+	ErrAppRatePerMin              = errors.New("APP_RATE_PER_MIN must be greater than or equal to 0, 0 means no rate limiting")
 	ErrLogLevelEmpty              = errors.New("LOG_LEVEL cannot be empty")
 	ErrLogFormatEmpty             = errors.New("LOG_FORMAT cannot be empty")
 	ErrMongoURIEmpty              = errors.New("MONGO_URI cannot be empty")
@@ -29,7 +30,8 @@ var (
 type Config struct {
 	AppPort               int    `mapstructure:"APP_PORT"`
 	BcryptCost            int    `mapstructure:"BCRYPT_COST"`
-	SignInRatePerMin      int    `mapstructure:"SIGNIN_RATE_PER_MIN"`
+	AuthRatePerMin        int    `mapstructure:"AUTH_RATE_PER_MIN"`
+	AppRatePerMin         int    `mapstructure:"APP_RATE_PER_MIN"`
 	LogLevel              string `mapstructure:"LOG_LEVEL"`
 	LogFormat             string `mapstructure:"LOG_FORMAT"`
 	MongoURI              string `mapstructure:"MONGO_URI"`
@@ -78,7 +80,8 @@ func Load() (Config, error) {
 	// Set defaults
 	v.SetDefault("APP_PORT", 8080)
 	v.SetDefault("BCRYPT_COST", 8)
-	v.SetDefault("SIGNIN_RATE_PER_MIN", 5)
+	v.SetDefault("AUTH_RATE_PER_MIN", 5)
+	v.SetDefault("APP_RATE_PER_MIN", 0)
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "json")
 	v.SetDefault("MONGO_URI", "mongodb://mongo:27017")
@@ -179,8 +182,11 @@ func (c Config) validateRanges() error {
 	if c.BcryptCost < 8 || c.BcryptCost > 16 {
 		return ErrBcryptCostRange
 	}
-	if c.SignInRatePerMin < 1 {
-		return ErrSignInRatePerMin
+	if c.AuthRatePerMin < 1 {
+		return ErrAuthRatePerMin
+	}
+	if c.AppRatePerMin < 0 {
+		return ErrAppRatePerMin
 	}
 	return nil
 }

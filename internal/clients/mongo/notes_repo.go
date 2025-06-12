@@ -138,8 +138,10 @@ func (r *NotesRepo) Create(ctx context.Context, note *notes.Note) error {
 	note.CreatedAt = now
 	note.UpdatedAt = now
 
-	_, err := r.collection.InsertOne(ctx, note)
-	return fmt.Errorf("failed to insert note: %w", err)
+	if _, err := r.collection.InsertOne(ctx, note); err != nil {
+		return fmt.Errorf("failed to insert note: %w", err)
+	}
+	return nil
 }
 
 // List retrieves notes for a user with filtering, search, sorting, and cursor-based pagination
@@ -158,7 +160,7 @@ func (r *NotesRepo) List(ctx context.Context, userID bson.ObjectID, req notes.Li
 		filter, err = r.buildListFilter(userID, req)
 	}
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("failed to build list filter: %w", err)
+		return nil, 0, 0, err
 	}
 
 	opts := r.buildFindOptions(req, req.Limit, offset)
@@ -468,7 +470,7 @@ func (r *NotesRepo) ListSide(ctx context.Context, userID bson.ObjectID, req note
 	// Build filter excluding the anchor note itself
 	filter, err := r.buildListFilter(userID, sideReq)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to build list filter: %w", err)
+		return nil, false, err
 	}
 
 	// Add cursor filter to position relative to anchor
