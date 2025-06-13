@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+tmp/*
+
+# Tailwind output (generated at dev / build time)
+src/generated/
+
+# Playwright / coverage artefacts
+test-results/
+playwright-report/
+coverage/

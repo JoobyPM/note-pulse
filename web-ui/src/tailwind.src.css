@@ -1,0 +1,62 @@
+/* purge-duplicate: scrollbar + modal-overlay */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom animations */
+/* @keyframes fadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+} */
+
+/* Custom component styles */
+/* .toast {
+  animation: fadeSlide 0.2s ease-out;
+} */
+
+/* Modal overlay */
+.modal-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.3);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 40;
+}
+
+/* Selected note card styling */
+.selected {
+	@apply border-3 border-blue-200 bg-blue-50;
+}
+.dark .selected {
+	@apply border-3 border-blue-700 bg-blue-900;
+}
+
+/* Selected text styling within note cards */
+.selected .note-title {
+	@apply text-blue-900;
+}
+.dark .selected .note-title {
+	@apply text-blue-100;
+}
+
+.selected .note-body {
+	@apply text-blue-600;
+}
+.dark .selected .note-body {
+	@apply text-blue-300;
+}
+
+.selected .note-updated {
+	@apply text-blue-500;
+}
+.dark .selected .note-updated {
+	@apply text-blue-400;
+}

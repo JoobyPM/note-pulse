@@ -1,0 +1,23 @@
+{
+  "fmt": {
+    "useTabs": true,
+    "lineWidth": 120,
+    "indentWidth": 4,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve",
+    "include": ["src/"],
+    "exclude": ["src/testdata/", "src/fixtures/**/*.ts"]
+  },
+  "compilerOptions": {
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "checkJs": true,
+    "strict": false
+  },
+  "unstable": [
+    "sloppy-imports"
+  ],
+}
