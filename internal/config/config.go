@@ -99,6 +99,7 @@ func Load() (Config, error) {
 	v.SetDefault("PYROSCOPE_ENABLED", false)
 	v.SetDefault("PYROSCOPE_SERVER_ADDR", "http://pyroscope:4040")
 	v.SetDefault("PYROSCOPE_APP_NAME", "notepulse-server")
+	v.SetDefault("JWT_SECRET", "")
 
 	// Configure Viper to read from .env file (if present)
 	v.SetConfigName(".env")

@@ -56,7 +56,7 @@ type ListNotesRequest struct {
 	Order  string `query:"order"  validate:"omitempty,oneof=asc desc" example:"desc"`                          // order is case-insensitive.
 	// nil   parameter was absent
 	// 0..N  parameter was supplied
-	Offset *int `query:"offset" json:"offset,omitempty" validate:"omitempty,min=0,max=10000" example:"300"`
+	Offset *int `query:"offset" json:"offset,omitempty" validate:"omitempty,min=0,max=50000" example:"300"`
 }
 
 // NoteResponse represents a single note response
@@ -84,7 +84,7 @@ var ErrNoteNotFound = errors.New("note not found")
 const (
 	defaultLimit = 50
 	maxLimit     = 100
-	maxOffset    = 10_000
+	maxOffset    = 50_000
 )
 
 // Direction constants for ListSide

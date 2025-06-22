@@ -23,6 +23,15 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+WORKDIR /app/web-ui
+
+ENV VITE_API_SAME_ORIGIN=true
+
+# Build web-ui
+RUN pnpm install --ignore-scripts && pnpm run build
+
+WORKDIR /app
+
 # Generate swagger docs
 RUN swag init -g ./docs/swagger.go --parseDependency --parseInternal
 
@@ -49,7 +58,7 @@ LABEL org.opencontainers.image.version=${VERSION} \
 
 WORKDIR /
 
-COPY --from=builder /app/web-ui/ /web-ui/
+COPY --from=builder /app/web-ui/dist/ /web-ui/
 COPY --from=builder /app/main .
 COPY --from=builder /app/ping .
 
