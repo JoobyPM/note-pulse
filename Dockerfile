@@ -28,7 +28,7 @@ WORKDIR /app/web-ui
 ENV VITE_API_SAME_ORIGIN=true
 
 # Build web-ui
-RUN pnpm install && pnpm run build
+RUN pnpm install --ignore-scripts && pnpm run build
 
 WORKDIR /app
 
