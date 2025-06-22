@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -21,6 +22,9 @@ var (
 	email   = flag.String("email", env("EMAIL", "demo@example.com"), "User e-mail")
 	pass    = flag.String("pass", env("PASSWORD", "Password123"), "User password")
 	nNotes  = flag.Int("n", envInt("COUNT", 500), "How many notes to create")
+
+	pause  = flag.Duration("pause", envDuration("PAUSE", 0), "Base pause between requests, e.g. 200ms")
+	jitter = flag.Float64("jitter", envFloat("JITTER", 0.3), "Jitter fraction applied to the pause, e.g. 0.3 for ±30 percent")
 )
 
 func env(key, def string) string {
@@ -38,8 +42,23 @@ func envInt(key string, def int) int {
 	return def
 }
 
-// ----------------------------------------------------------------------------
-// HTTP helpers ---------------------------------------------------------------
+func envDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			return d
+		}
+	}
+	return def
+}
+func envFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f
+		}
+	}
+	return def
+}
+
 func postJSON(path string, body any, hdr map[string]string) (*http.Response, error) {
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, *baseURL+path, bytes.NewReader(b))
@@ -56,8 +75,6 @@ func must(body io.ReadCloser) []byte {
 	return data
 }
 
-// ----------------------------------------------------------------------------
-// Main -----------------------------------------------------------------------
 func main() {
 	flag.Parse()
 	gofakeit.Seed(time.Now().UnixNano())
@@ -78,8 +95,7 @@ func main() {
 	fmt.Println("✔ done")
 }
 
-// ----------------------------------------------------------------------------
-// Step 1 – make sure the user exists -----------------------------------------
+// Step 1: make sure the user exists
 func ensureUser() (string, error) {
 	payload := map[string]string{"email": *email, "password": *pass}
 
@@ -109,8 +125,7 @@ func ensureUser() (string, error) {
 	return r.Token, nil
 }
 
-// ----------------------------------------------------------------------------
-// Step 2 – create notes -------------------------------------------------------
+// Step 2: create notes
 func createNotes(token string, total int) error {
 	h := map[string]string{"Authorization": "Bearer " + token}
 
@@ -131,6 +146,15 @@ func createNotes(token string, total int) error {
 
 		if i%50 == 0 || i == total {
 			fmt.Printf("  … %d/%d\n", i, total)
+		}
+
+		// Optional jittered delay to ease load on the server
+		if *pause > 0 {
+			delta := float64(*pause) * *jitter
+			sleep := *pause + time.Duration(rand.Float64()*2*delta-delta)
+			if sleep > 0 {
+				time.Sleep(sleep)
+			}
 		}
 	}
 	return nil

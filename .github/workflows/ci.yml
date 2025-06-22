@@ -5,6 +5,8 @@
 # 1. Lint + unit + E2E tests   (builder image + Testcontainers + DinD)
 # 2. Build distroless image    (Ubuntu runner)
 # 3. Smoke-test with compose   (ping /healthz)
+# 4. Publish release images    (multi-arch)
+# 5. Deploy to stage           (SSH)
 # -------------------------------------------------------------------
 
 name: CI
@@ -109,19 +111,15 @@ jobs:
       - name: Generate .env for smoke test
         run: |
           # Mongo root user → required by the official image
-          echo "MONGO_INITDB_ROOT_USERNAME=root" >> .env
+          echo "MONGO_INITDB_ROOT_USERNAME=root"                     >> .env
           echo "MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-example}" >> .env
-          echo "MONGO_DB_NAME=notepulse" >> .env
-
+          echo "MONGO_DB_NAME=notepulse"                             >> .env
           # Driver string authenticates as that root user on the admin DB
           echo "MONGO_URI=mongodb://root:${MONGO_INITDB_ROOT_PASSWORD:-example}@mongo:27017/notepulse?authSource=admin" >> .env
-
           # App secrets - same values you use in Testcontainers
-          echo "JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 24)}" >> .env
-          echo "JWT_ALGORITHM=HS256" >> .env
-          echo "DEV_MODE=true" >> .env
-
-
+          echo "JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 24)}"   >> .env
+          echo "JWT_ALGORITHM=HS256"                                 >> .env
+          echo "DEV_MODE=true"                                       >> .env
 
       # Enable containerd snapshotter so `load: true` works
       - name: Set up Docker engine
@@ -211,6 +209,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push multi-arch image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -225,3 +224,56 @@ jobs:
           provenance: true
           build-args: |
             VERSION=${{ github.ref_name }}
+
+      - name: Export image refs
+        run: |
+          echo "IMAGE_DIGEST=${{ steps.build.outputs.digest }}" >> $GITHUB_ENV
+          echo "${{ steps.build.outputs.digest }}" > IMAGE_DIGEST
+          echo "${{ github.ref_name }}"           > IMAGE_TAG
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-info
+          path: |
+            IMAGE_DIGEST
+            IMAGE_TAG
+
+  deploy-stage:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: stage
+      url: https://note-pulse.jooby.pro
+    steps:
+      - name: Download image-info artifact
+        uses: actions/download-artifact@v4
+        with: { name: image-info }
+
+      - name: Parse digest & tag into env
+        run: |
+          echo "IMAGE_DIGEST=$(cat IMAGE_DIGEST)" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$(cat IMAGE_TAG)"       >> $GITHUB_ENV
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:      ${{ secrets.SSH_HOST }}
+          username:  ${{ secrets.SSH_USER }}
+          key:       ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/notepulse
+
+            # 1. write the digest/tag that the publish job produced
+            cat > stage/.env.image <<EOF
+            IMAGE_DIGEST=${{ env.IMAGE_DIGEST }}
+            IMAGE_TAG=${{ env.IMAGE_TAG }}
+            EOF
+
+            # 2. pull & recreate the stack exactly once
+            sudo -n systemctl restart notepulse-stage
+
+            # 3. tidy cache (optional)
+            docker image prune -f --filter "until=24h"
