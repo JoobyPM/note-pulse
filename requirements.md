@@ -1,90 +1,160 @@
-# NotePulse project requirements
+# Requirements
 
-## Purpose
-Build a small REST plus WebSocket service that lets authenticated users create sticky notes and receive live one-way update events when any note changes.
+Below is the **complete, up‑to‑date requirements specification** for the
+_NotePulse_ course project. The document is intentionally split into two parts:
 
-## Stack and versions
-| Component         | Version             |
-| ----------------- | ------------------- |
-| Go                | 1.24.2              |
-| Fiber             | 2.x                 |
-| MongoDB           | 8.x                 |
-| Viper             | latest              |
-| slog              | built-in (log/slog) |
-| swag              | v2                  |
-| websocket contrib | latest compatible   |
-| Testify           | latest              |
+1. **Original requirements, for course project for Go training** - frozen
+   reference of the assignment you received at the start of the course.
+2. **Current functional & non‑functional requirements** - the canonical
+   specification that the codebase now fulfils and that future work must follow.
 
-## Functional scope
-* User can sign up and sign in.
-* Authenticated user can add, list, update, delete own notes.
-* Every note change is broadcast to all connected clients by WebSocket (server -> client only, no client messages).
+## 1 Original requirements, for curse project for golang training
 
-## API endpoints
-| Method | Path             | Description             |
-| ------ | ---------------- | ----------------------- |
-| POST   | /auth/sign-up    | New user registration   |
-| POST   | /auth/sign-in    | Issue JWT               |
-| POST   | /notes           | Create note             |
-| GET    | /notes           | List notes              |
-| PATCH  | /notes/:id       | Edit note               |
-| DELETE | /notes/:id       | Delete note             |
-| GET    | /ws/notes/stream | WebSocket event channel |
+> **Курсовий проєкт** (максимальна кількість балів - 50)
+>
+> 1. Використовуємо REST API фреймворк, наприклад _fiber_ (можна інший).
+> 2. Всього **5-10 ендпоінтів**.
+> 3. Використовуємо _docker‑compose_ для локального розгортання.
+> 4. Має бути **авторизація**.
+> 5. Використання **бази даних**. Бажано _MongoDB_ (можна іншу, якщо маєте
+>    достатні знання).
+> 6. Дотримання структури проекту:
+>    ```text
+>    module_6/
+>    ├── cmd/
+>    │   └── server/
+>    │       ├── main.go
+>    │       ├── handlers/
+>    │       ├── middlewares/
+>    │       └── utils/
+>    ├── internal/
+>    │   ├── services/
+>    │   ├── clients/        # зовнішні залежності
+>    │   ├── config/
+>    │   └── utils/
+>    ├── go.mod
+>    ├── Dockerfile
+>    └── docker-compose.yaml
+>    ```
+> 7. Використання **WebSocket** - _опціонально_.
+> 8. Має бути **Swagger**.
+> 9. Має бути покриття **логами**.
+> 10. Має бути покриття **тестами**, мінімум юніт‑тести (інтеграційні й _e2e_ -
+>     по бажанню).
+> 11. **Клієнтська частина** - опціональна.
+>
+> ### Приклад курсового (API для чату)
+>
+> - `/auth/sign-up`
+> - `/auth/sign-in`
+> - `/channel/history`
+> - `WS: /channel/listen`
+> - `/channel/send`
 
-P.S. We have to make pagination for the list of notes.
+## 2 Current functional & non‑functional requirements (NotePulse v1.0)
 
-Total REST endpoints: 6. One WebSocket endpoint.
+### 2.1 Purpose
 
-## WebSocket
-To able to use WebSocket in web, we have to pass JWT token in the GET request.
+_NotePulse_ is a **real‑time sticky‑note service** that lets authenticated users
+create, update and delete personal notes while every change is pushed live to
+all their connected devices through WebSocket.
 
-```bash
-ws://localhost:8080/ws/notes/stream?token=your_jwt_token
+### 2.2 High‑level feature list
+
+| Area          | Requirement                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API style     | REST over HTTP 1.1 with JSON payloads. WebSocket sub‑protocol for live updates.                                                                          |
+| Endpoints     | 11 HTTP routes (+ 1 WS) grouped under `/api/v1`. See §2.3.                                                                                               |
+| AuthN / AuthZ | JWT access tokens (**HS256**), sliding window refresh tokens with rotation & reuse‑detection, per‑IP rate limit.                                         |
+| Persistence   | **MongoDB 6+**; one database (`notepulse`) with the following collections: `users`, `notes`, `refresh_tokens`. Compound indexes are pre‑created at boot. |
+| Concurrency   | Fully stateless HTTP nodes; all websockets are fanned‑out by an in‑process hub with back‑pressure & drop detection.                                      |
+| Observability | Prometheus `/metrics`, optional `pprof` at `:6060`, structured **slog** JSON or text. Optional Pyroscope continuous‑profiling agent.                     |
+| Documentation | Swagger UI generated by **swag** at `/docs/index.html`. Each handler is annotated with `@Summary`, `@Tags`, etc.                                         |
+| Local dev     | Single‑command `make dev` → spins up server + Mongo + Grafana/Prometheus via **docker‑compose** (§2.8).                                                  |
+| Testing       | Unit, integration and _end‑to‑end_ tests (Go test tags `e2e`) run in GitHub Actions; >90 files, >7000 LOC under `/test`.                                 |
+| CI/CD         | `make check` performs lint + fmt + vet + tests + build; executed in CI. Docker image published to GHCR.                                                  |
+| Security      | Passwords hashed with bcrypt (cost configurable, default 8). Password strength validator (≥8 chars, upper+lower+digit).                                  |
+| Rate limits   | Auth routes should be limited to **`AUTH_RATE_PER_MIN`** (default 5) via Fiber `limiter` middleware.                                                     |
+| Rate limits   | App routes should be limited to **`APP_RATE_PER_MIN`** (default 0 - no rate limiting) via Fiber `limiter` middleware.                                    |
+
+### 2.3 API surface (v1)
+
+| Method & path                              | Brief                                                         | Auth            | Notes                            |
+| ------------------------------------------ | ------------------------------------------------------------- | --------------- | -------------------------------- |
+| `POST /api/v1/auth/sign-up`                | Register new user                                             | -               | Strong password validation       |
+| `POST /api/v1/auth/sign-in`                | Obtain access+refresh tokens                                  | -               | Rate‑limited                     |
+| `POST /api/v1/auth/refresh`                | Rotate refresh token, get new pair                            | -               | Reuse detection, rotating tokens |
+| `POST /api/v1/auth/sign-out`               | Revoke _one_ refresh token                                    | **✓**           | 401 on second use                |
+| `POST /api/v1/auth/sign-out-all`           | Revoke **all** refresh tokens of user                         | **✓**           |                                  |
+| `GET  /api/v1/me`                          | Current user profile                                          | **✓**           | Convenience route                |
+| `POST /api/v1/notes`                       | Create note                                                   | **✓**           | Sanitises HTML                   |
+| `GET  /api/v1/notes`                       | List notes (cursor + anchor pagination, search, filter, sort) | **✓**           | Returns counts & cursors         |
+| `PATCH /api/v1/notes/{id}`                 | Update note                                                   | **✓**           | Partial fields                   |
+| `DELETE /api/v1/notes/{id}`                | Delete note                                                   | **✓**           |                                  |
+| `GET  /healthz`                            | Liveness + Mongo ping                                         | -               | Plain JSON                       |
+| **WS:** `GET /ws/notes/stream?token=<JWT>` | Real‑time events (`created`/`updated`/`deleted`)              | JWT query param | Ping/pong, session TTL           |
+
+### 2.4 Domain rules
+
+- Each note belongs to exactly one user (`user_id` FK).
+- Maximum payload sizes are enforced by Fiber defaults (4 MiB) - adjust in
+  config if needed.
+- Client‑supplied HTML is stripped (`sanitize.Clean`) before persistence.
+- Anchor‑based pagination guarantees **stable windows** even when concurrent
+  edits happen.
+
+### 2.5 Non‑functional requirements
+
+| Category    | Requirement                                                                                                                        |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Performance | P95 < 100 ms on `/notes?limit=50` with 50k notes; benchmarked by k6; thresholds tracked in CI.                                     |
+| Scalability | Horizontal - stateless HTTP; sticky‑note hub is local but designed to switch to Redis streams if clustering is required.           |
+| Reliability | Graceful shutdown within 25 s, zero exit on SIGTERM; `/ping` helper binary for container healthchecks.                             |
+| Security    | JWT & bcrypt as above; all errors internally logged but generic 4xx/5xx exposed. CORS `*` by default (dev); lock‑down in prod env. |
+| Config      | 30+ env vars, validated at boot (see `internal/config`). Invalid config aborts startup.                                            |
+
+### 2.6 Project layout
+
+```text
+module_6/
+├── cmd/
+│   ├── server/           # HTTP + WS binary
+│   ├── ping/             # tiny health‑probe binary
+│   └── k6report/         # converts k6 JSON → MD
+├── internal/
+│   ├── services/         # domain logic (auth, notes)
+│   ├── clients/          # Mongo adapter
+│   ├── config/           # env loader & validation
+│   └── utils/            # crypto, sanitize, etc.
+├── docs/                 # swagger output
+├── assets/               # diagrams & logo
+├── test/                 # e2e test‑harness
+├── docker-compose.yml    # dev stack
+├── Dockerfile            # multistage prod image
+└── Makefile
 ```
 
-We have to use JWT token to identify the user.
-## Non-functional requirements
-1. Project layout
+### 2.7 Local development workflow
 
 ```bash
-.
-├── cmd
-│   └── server
-│       ├── main.go
-│       ├── handlers
-│       ├── middlewares
-│       └── utils
-│
-├── internal
-│   ├── services
-│   ├── clients
-│   │   └── mongo
-│   ├── config
-│   └── utils
-│
-├── api            # swagger-generated docs will live here
-│   └── docs
-│
-├── test           # testify unit tests
-│
-├── go.mod
-├── Dockerfile
-└── docker-compose.yaml
+# 1) generate secrets, spin up full stack
+make dev
+
+# 2) hot‑reload server (Air or similar)  - optional
+
+# 3) run unit & integration tests
+make check
 ```
 
-2. Configuration via Viper (env vars) - logger (log level, log format), mongo (uri, db name, credentials), port.
-3. Logger implemented as singleton, JSON output (by default), reusable anywhere.
-4. Mongo repository layer behind interfaces.
-5. Swagger docs generated and served at /docs/.
-6. Unit tests with Testify.
-7. Dockerfile must build static binary, docker-compose spins up app, mongo, mongo-express.
-8. Use CGO disabled static build suitable for distroless runtime.
+### 2.8 Deployment
 
-## Build and run locally
-```bash
-# Build and start
-docker compose up --build
+- **Container image:** `ghcr.io/joobypm/note-pulse:<tag>` (distroless
+  static‑Debian). Health‑checked by `/ping` binary.
+- **Minimal runtime env:**
 
-# Swagger UI once running
-open http://localhost:8080/docs/index.html
-````
+  - `APP_PORT`, `MONGO_URI`, `JWT_SECRET` required.
+  - Everything else has sensible defaults.
+
+---
+
+_Last updated: 2025‑06‑09_

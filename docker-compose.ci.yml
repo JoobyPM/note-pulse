@@ -1,0 +1,19 @@
+services:
+  mongo:
+    volumes:
+      - type: tmpfs
+        target: /data/db
+        tmpfs: { size: 256m }
+    ports: []
+
+  server:
+    env_file:
+      - .env.ci
+    ports: []
+    # identical probe to the base file
+    healthcheck:
+      test: ["CMD", "/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

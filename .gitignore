@@ -5,3 +5,14 @@ tmp/*
 .vscode/*
 .env
 .env.local
+.env.notepulse
+/coverage.out
+.e2e
+
+docs/openapi*
+!docs/openapi/.gitkeep
+
+sonar-project.properties
+.sonarlint/*
+
+node_modules/*

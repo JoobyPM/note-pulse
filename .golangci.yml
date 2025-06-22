@@ -1,0 +1,23 @@
+linters-settings:
+  # no extra knobs: these linters have no config
+  contextcheck: {}
+  containedctx: {}
+  fatcontext:    {}
+  durationcheck: {}
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # - nestif
+    - contextcheck
+    - containedctx
+    - fatcontext
+    - durationcheck
+    - staticcheck
+    - govet
+    - errcheck
+    - errorlint
+    # - wrapcheck

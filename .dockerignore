@@ -1,0 +1,60 @@
+########################################################
+# build artefacts
+########################################################
+bin/
+coverage.out
+*.exe
+*.test
+*.out
+
+########################################################
+# local / editor noise
+########################################################
+.DS_Store
+*.swp
+.idea/
+.vscode/
+*.log
+
+########################################################
+# Dev-only or CI helpers
+########################################################
+# source-only commands
+cmd/k6report/
+cmd/initdata/
+# k6 load-test stack
+loadtest/
+# Prometheus + Grafana stack
+monitoring/
+# Go tests & E2E harness
+test/
+# GitHub Actions, Sonar, etc.
+.github/
+.sonarlint/
+.golangci.yml
+
+########################################################
+# infra / docs not needed at runtime
+########################################################
+Dockerfile
+docker-compose*.yml
+deployment.md
+README.md
+requirements.md
+Makefile
+scripts/gen-dev-env.sh
+sonar-project.properties
+
+# screenshots, logos, PlantUML - runtime-irrelevant
+assets/
+
+
+########################################################
+# keep docs & web-ui - they ARE served by the binary
+# keep scripts/build.sh - used by the builder
+# keep .git - needed for version metadata
+########################################################
+
+
+# web-ui
+web-ui/node_modules/
