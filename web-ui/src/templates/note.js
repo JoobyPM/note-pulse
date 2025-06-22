@@ -17,9 +17,7 @@ export const editorPlaceholderTemplate = () => {
 };
 
 export const skeletonCardTemplate = (/** @type {number} */ rowHeight) => {
-	return `<div style="height:${
-		rowHeight - 8
-	}px" class="animate-pulse bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>`;
+	return `<div style="height:${rowHeight - 8}px" class="animate-pulse bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>`;
 };
 
 export const emptyStateTemplate = () => {
