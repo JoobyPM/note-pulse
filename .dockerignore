@@ -54,3 +54,7 @@ assets/
 # keep scripts/build.sh - used by the builder
 # keep .git - needed for version metadata
 ########################################################
+
+
+# web-ui
+web-ui/node_modules/

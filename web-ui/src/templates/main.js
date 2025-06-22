@@ -20,10 +20,10 @@ export const mainTemplate = () => {
         </div>
         <div class="px-4 pb-3 border-b border-gray-200 dark:border-gray-700">
           <div class="flex items-center space-x-2 mb-2">
-            <input 
-              type="search" 
-              id="search-input" 
-              placeholder="Search…" 
+            <input
+              type="search"
+              id="search-input"
+              placeholder="Search…"
               class="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded"
               autocomplete="off"
             >
@@ -43,7 +43,7 @@ export const mainTemplate = () => {
           </div>
           <div id="notes-count" class="text-sm text-gray-500 dark:text-gray-400" aria-live="polite" aria-atomic="true"></div>
         </div>
-        <div id="note-list" class="note-list overflow-y-auto h-[calc(100%-120px)] p-2 space-y-2" role="listbox" aria-label="Notes" tabindex="0">
+        <div id="note-list" class="note-list overflow-y-auto h-[calc(100%-220px)] p-2 space-y-2" role="listbox" aria-label="Notes" tabindex="0">
           <div id="contentArea" class="clusterize-content">
           </div>
         </div>

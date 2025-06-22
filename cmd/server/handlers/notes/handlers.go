@@ -78,7 +78,7 @@ func (h *Handlers) Create(c *fiber.Ctx) error {
 // @Param color query string false "Hex color filter (#RRGGBB)"
 // @Param sort query string false "Sort field: created_at|updated_at|title"
 // @Param order query string false "asc|desc (default desc)"
-// @Param offset query int false "Offset for absolute positioning (0-10,000). Cannot be used with cursor or anchor." minimum(0) maximum(10000)
+// @Param offset query int false "Offset for absolute positioning (0-50,000). Cannot be used with cursor or anchor." minimum(0) maximum(50000)
 // @Success 200 {object} notes.ListNotesResponse
 // @Failure 400 {object} httperr.E
 // @Failure 401 {object} httperr.E

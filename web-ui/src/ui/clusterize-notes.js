@@ -37,6 +37,7 @@ export class ClusterizeNotes {
 
 		// Wire up Clusterize‑Lazy
 		this.cluster = new Clusterize({
+			debug: true,
 			scrollElem: this.container,
 			contentElem: this.contentElem,
 			rowHeight: this.rowHeight,
@@ -96,7 +97,7 @@ export class ClusterizeNotes {
 	deleteNote(id) {
 		const idx = this.cluster._dump().index?.get(id) ?? -1;
 		const wasAbove = idx > -1 && idx < this.getFirstVisible();
-		this.cluster.delete([id]);
+		this.cluster.remove([id]);
 		if (wasAbove) {
 			this.container.scrollTop = Math.max(
 				0,
@@ -111,6 +112,8 @@ export class ClusterizeNotes {
 
 	destroy() {
 		this.cluster.destroy();
+		document.getElementById(this.contentElem.id).remove();
+		this.contentElem = null;
 	}
 
 	/** Utility: current first visible index */
