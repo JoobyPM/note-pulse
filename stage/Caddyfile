@@ -1,0 +1,4 @@
+note-pulse.jooby.pro {
+  reverse_proxy server:8080
+  encode gzip
+}
